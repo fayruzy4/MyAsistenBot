@@ -407,64 +407,83 @@ def handle_callback(call):
                     reply_markup=ai_mode_keyboard(),
                 )
 
-        # Sisanya biarkan sama persis seperti main.py Anda sekarang.
         elif data == "txn_add_income":
             pending_actions[user_id] = {"kind": "income"}
             start_transaction(bot, call.message, "income")
+
         elif data == "txn_add_expense":
             pending_actions[user_id] = {"kind": "expense"}
             start_transaction(bot, call.message, "expense")
+
         elif data == "txn_recent":
             show_last_transactions(bot, call.message, supabase, user_id)
+
         elif data == "txn_delete_last":
             delete_last_transaction(bot, call.message, supabase, user_id)
+
         elif data == "graph_7":
             show_graph_report(bot, call.message, supabase, user_id, 7)
+
         elif data == "graph_30":
             show_graph_report(bot, call.message, supabase, user_id, 30)
+
         elif data == "target_menu":
             show_target_menu(bot, call.message, supabase, user_id)
+
         elif data.startswith("target_detail:"):
             target_id = data.split(":", 1)[1]
             show_target_detail(bot, call.message, supabase, user_id, target_id)
+
         elif data == "target_add":
             pending_actions[user_id] = {"kind": "add_target"}
             start_add_target(bot, call.message)
+
         elif data == "target_delete_last":
             delete_last_target(bot, call.message, supabase, user_id)
 
         elif data == "habit_dashboard":
             show_habit_dashboard(bot, call.message, supabase, user_id)
+
         elif data.startswith("habit_toggle:"):
             habit_id = data.split(":", 1)[1]
             handle_habit_toggle(bot, call, supabase, user_id, habit_id)
+
         elif data == "habit_add_start":
             start_add_habit(bot, call.message)
+
         elif data.startswith("habit_add_diff:"):
             diff = data.split(":", 1)[1]
             pending_actions[user_id] = {"kind": "habit_add_name", "diff": diff}
             process_add_habit_difficulty(bot, call.message, diff)
+
         elif data == "habit_delete_list":
             show_habit_delete_list(bot, call.message, supabase, user_id)
+
         elif data.startswith("habit_delete_confirm:"):
             habit_id = data.split(":", 1)[1]
             process_delete_habit_confirm(bot, call.message, supabase, user_id, habit_id)
+
         elif data == "habit_manage_list":
             show_habit_manage_list(bot, call.message, supabase, user_id)
+
         elif data.startswith("habit_manage_opt:"):
             habit_id = data.split(":", 1)[1]
             show_habit_manage_options(bot, call.message, habit_id)
+
         elif data.startswith("habit_edit_name:"):
             habit_id = data.split(":", 1)[1]
             pending_actions[user_id] = {"kind": "habit_edit_name", "habit_id": habit_id}
             start_edit_habit_name(bot, call.message)
+
         elif data.startswith("habit_edit_diff:"):
             parts = data.split(":")
             habit_id = parts[1]
             diff = parts[2]
             process_edit_habit_difficulty(bot, call.message, supabase, user_id, habit_id, diff)
+
         elif data == "habit_stats":
             show_habit_stats(bot, call.message, supabase, user_id)
+
         elif data == "habit_achievements":
             show_habit_achievements(bot, call.message, supabase, user_id)
 
