@@ -247,9 +247,58 @@ def show_graph_report(bot, message, supabase_client, user_id, days, notify_owner
             .execute()
             .data
         )
-
-        title = f"📊 <b>GRAFIK {days} HARI</b>\n\n"
+           title = f"📊 <b>GRAFIK {days} HARI</b>\n\n"
 
         if not rows:
             safe_render(
-               
+                bot,
+                message,
+                title + "Belum ada data transaksi.\nIsi dulu biar grafiknya punya cerita.",
+                _nav_keyboard(),
+            )
+            return
+
+        income = 0
+        expense = 0
+        daily_net = defaultdict(int)
+
+        for item in rows:
+            nominal = int(item.get("nominal", 0))
+            tipe = item.get("tipe")
+            created = str(item.get("created_at", ""))[:10]
+
+            if tipe == "income":
+                income += nominal
+                daily_net[created] += nominal
+            else:
+                expense += nominal
+                daily_net[created] -= nominal
+
+        net = income - expense
+        max_abs = max([abs(v) for v in daily_net.values()] + [1])
+
+        lines = [
+            title.rstrip(),
+            f"💰 Pemasukan : {rupiah(income)}",
+            f"💸 Pengeluaran: {rupiah(expense)}",
+            f"🧾 Saldo Bersih: {rupiah(net)}",
+            "",
+            "<b>Ringkasan Harian</b>",
+        ]
+
+        for day in sorted(daily_net.keys()):
+            val = daily_net[day]
+            sign = "+" if val >= 0 else "-"
+            lines.append(f"{day} | [{_bar(abs(val), max_abs)}] {sign}{rupiah(abs(val))}")
+
+        kb = InlineKeyboardMarkup()
+        kb.row(
+            InlineKeyboardButton("⬅️ Menu Keuangan", callback_data="finance_menu"),
+            InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
+        )
+
+        safe_render(bot, message, "\n".join(lines), kb)
+
+    except Exception as exc:
+        notify_bug(bot, "show_graph_report", exc, notify_owner=notify_owner)
+        bot.send_message(message.chat.id, "Gagal membuat grafik.", reply_markup=_nav_keyboard())
