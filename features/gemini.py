@@ -10,42 +10,58 @@ from google.genai import types
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 SYSTEM_PROMPT = os.getenv(
     "GEMINI_SYSTEM_PROMPT",
-    "Kamu adalah Nexus-1 Dengan seri model NexusAistena127B-o, Jawab dengan rapih dan ramah juga asik dan banyak emot."
+    "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
 )
+
+# Batas aman supaya chat tidak terlalu lambat.
+DEFAULT_HISTORY_LIMIT = 8
+MAX_HISTORY_LIMIT = 8
 
 
 def _clean_text(value: str) -> str:
     return (value or "").strip()
 
 
-def _looks_like_rate_limit(exc: Exception) -> bool:
+def _is_quota_or_rate_limit_error(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
     status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+
     return (
         status_code == 429
         or "429" in text
         or "resource exhausted" in text
         or "rate limit" in text
         or "quota" in text
+        or "please retry" in text
     )
 
 
-def _extract_text(response: Any) -> str:
-    text = getattr(response, "text", None)
-    if text:
-        return _clean_text(text)
+def _extract_response_text(response: Any) -> str:
+    """
+    Hindari akses response.text kalau SDK mengeluarkan warning thought_signature.
+    Ambil hanya part teks yang benar-benar ada.
+    """
+    parts_text: List[str] = []
 
     try:
         candidates = getattr(response, "candidates", None) or []
-        if candidates:
-            content = candidates[0].content
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
             parts = getattr(content, "parts", None) or []
-            if parts:
-                part_text = getattr(parts[0], "text", None)
+            for part in parts:
+                part_text = getattr(part, "text", None)
                 if part_text:
-                    return _clean_text(part_text)
+                    parts_text.append(str(part_text))
     except Exception:
         pass
+
+    if parts_text:
+        return "\n".join(parts_text).strip()
+
+    # Fallback terakhir. Bisa memunculkan warning, tetapi tetap aman.
+    text = getattr(response, "text", None)
+    if text:
+        return _clean_text(str(text))
 
     return ""
 
@@ -60,6 +76,7 @@ class GeminiAI:
             os.getenv("GEMINI_KEY_4", "").strip(),
         ]
         self.keys = [k for k in self.keys if k]
+
         if not self.keys:
             raise RuntimeError("Minimal 1 GEMINI_KEY harus diisi di environment variables.")
 
@@ -70,14 +87,17 @@ class GeminiAI:
         with self.lock:
             return self.keys[self.current_key_index]
 
-    def _advance_key(self) -> None:
+    def _advance_key(self) -> str:
         with self.lock:
             self.current_key_index = (self.current_key_index + 1) % len(self.keys)
+            return self.keys[self.current_key_index]
 
     def _build_client(self):
         return genai.Client(api_key=self._get_active_key())
 
-    def _fetch_history(self, user_id: int, limit: int = 16) -> List[Dict[str, Any]]:
+    def _fetch_history(self, user_id: int, limit: int = DEFAULT_HISTORY_LIMIT) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit or DEFAULT_HISTORY_LIMIT), MAX_HISTORY_LIMIT))
+
         resp = (
             self.supabase.table("ai_chat_memory")
             .select("role, message_text")
@@ -87,9 +107,10 @@ class GeminiAI:
             .limit(limit)
             .execute()
         )
-        rows = list(reversed(resp.data or []))
 
-        history = []
+        rows = list(reversed(resp.data or []))
+        history: List[Dict[str, Any]] = []
+
         for row in rows:
             role = row.get("role", "user")
             if role == "assistant":
@@ -101,10 +122,13 @@ class GeminiAI:
             if not text:
                 continue
 
-            history.append({
-                "role": role,
-                "parts": [{"text": text}],
-            })
+            history.append(
+                {
+                    "role": role,
+                    "parts": [{"text": text}],
+                }
+            )
+
         return history
 
     def _save_message(self, user_id: int, role: str, message_text: str) -> None:
@@ -116,23 +140,28 @@ class GeminiAI:
         }
         self.supabase.table("ai_chat_memory").insert(payload).execute()
 
-    def ask(self, user_id: int, prompt: str, history_limit: int = 16) -> str:
+    def ask(self, user_id: int, prompt: str, history_limit: int = DEFAULT_HISTORY_LIMIT) -> str:
         prompt = _clean_text(prompt)
         if not prompt:
             return "Pesan kosong."
 
+        history_limit = max(1, min(int(history_limit or DEFAULT_HISTORY_LIMIT), MAX_HISTORY_LIMIT))
         history = self._fetch_history(user_id, limit=history_limit)
+
+        # Coba semua key yang ada, pindah otomatis kalau kena 429/quota.
         attempts = max(1, len(self.keys))
         last_error = None
 
-        for _ in range(attempts):
+        for attempt in range(attempts):
             client = self._build_client()
             try:
                 contents = list(history)
-                contents.append({
-                    "role": "user",
-                    "parts": [{"text": prompt}],
-                })
+                contents.append(
+                    {
+                        "role": "user",
+                        "parts": [{"text": prompt}],
+                    }
+                )
 
                 response = client.models.generate_content(
                     model=GEMINI_MODEL,
@@ -143,27 +172,31 @@ class GeminiAI:
                     ),
                 )
 
-                answer = _extract_text(response)
-                answer = answer or "Maaf, saya belum mendapat jawaban yang jelas."
+                answer = _extract_response_text(response)
+                if not answer:
+                    answer = "Maaf, saya belum mendapat jawaban yang jelas."
 
+                # Simpan hanya kalau request sukses.
                 self._save_message(user_id, "user", prompt)
                 self._save_message(user_id, "assistant", answer)
                 return answer
 
             except Exception as exc:
                 last_error = exc
-                if _looks_like_rate_limit(exc):
-                    # Pindah key lalu retry, tanpa menampilkan error kuota ke user.
-                    self._advance_key()
-                    time.sleep(0.2)
+
+                if _is_quota_or_rate_limit_error(exc):
+                    next_key = self._advance_key()
+                    # Retry halus, jangan terlalu lama karena user menunggu.
+                    time.sleep(min(0.4 * (attempt + 1), 1.2))
                     continue
 
-                print(f"[GeminiAI] Error: {exc}")
+                # Error non-quota: log ke terminal supaya kelihatan penyebabnya.
+                print(f"[GeminiAI] Error non-quota: {exc}")
                 print(traceback.format_exc())
                 break
 
-        if last_error:
-            return "Sistem Gemini sedang padat. Coba lagi sebentar lagi."
+        if last_error and _is_quota_or_rate_limit_error(last_error):
+            return "Semua key Gemini sedang penuh. Coba lagi sebentar lagi."
         return "Terjadi gangguan saat memproses jawaban."
 
     def reset_user_memory(self, user_id: int) -> None:
