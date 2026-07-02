@@ -1,4 +1,3 @@
-
 import os
 import threading
 import time
@@ -105,9 +104,6 @@ class GeminiAI:
         for _ in range(attempts):
             client = self._build_client()
             try:
-                # Simpan user prompt sekali saja, setelah request berhasil juga boleh.
-                # Di sini saya simpan sebelum request agar konteks tetap tercatat jika ada crash.
-                # Kalau request gagal total, user tetap punya jejak input.
                 self._save_message(user_id, "user", prompt)
 
                 chat = client.chats.create(
@@ -128,13 +124,15 @@ class GeminiAI:
             except Exception as exc:
                 last_error = exc
                 if _looks_like_rate_limit(exc):
-                    # Pindah key lalu retry. Ini mencegah error 429 tampil ke user.
+                    # Kalau kena 429 / quota, pindah key lalu retry tanpa bocorin error ke user.
                     self._advance_key()
                     time.sleep(0.2)
                     continue
                 break
 
-        return "Sistem Gemini sedang padat. Coba lagi sebentar lagi."
+        if last_error:
+            return "Sistem Gemini sedang padat. Coba lagi sebentar lagi."
+        return "Terjadi gangguan saat memproses jawaban."
 
     def reset_user_memory(self, user_id: int) -> None:
         self.supabase.table("ai_chat_memory").delete().eq("user_id", str(user_id)).execute()
