@@ -98,7 +98,7 @@ def finance_keyboard():
 
 def show_dashboard(message, edit=False):
     text = (
-        "✨ <b>Halo! Selamat datang di Asisten Keuanganmu</b> ✨\n\n"
+        "✨ <b>Halo! Selamat datang di MyAsistenBot</b> ✨\n\n"
         "Mulai sekarang, mencatat pengeluaran, pemasukan, hingga memantau "
         "target tabungan impianmu jadi lebih mudah dan rapi.\n\n"
         "Yuk, pilih menu di bawah untuk mulai mengatur keuanganmu hari ini! 👇"
