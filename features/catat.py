@@ -40,17 +40,56 @@ def safe_render(bot, message, text, reply_markup=None):
         bot.send_message(message.chat.id, text, reply_markup=reply_markup)
 
 
+def _prompt_keyboard():
+    kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton("⬅️ Kembali ke Menu Keuangan", callback_data="txn_back_menu"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
+    )
+    return kb
+
+
+def _success_keyboard(tipe):
+    kb = InlineKeyboardMarkup()
+    if tipe == "income":
+        again_text = "➕ Tambah Lagi"
+        again_cb = "txn_add_income"
+    else:
+        again_text = "➖ Kurang Lagi"
+        again_cb = "txn_add_expense"
+
+    kb.row(
+        InlineKeyboardButton(again_text, callback_data=again_cb),
+        InlineKeyboardButton("📋 Riwayat", callback_data="txn_recent"),
+    )
+    kb.row(
+        InlineKeyboardButton("⬅️ Menu Keuangan", callback_data="finance_menu"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
+    )
+    return kb
+
+
+def _nav_keyboard():
+    kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton("⬅️ Menu Keuangan", callback_data="finance_menu"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
+    )
+    return kb
+
+
 def start_transaction(bot, message, tipe):
     try:
-        judul = "Tambah Saldo" if tipe == "income" else "Kurang Saldo"
+        judul = "➕ Tambah Saldo" if tipe == "income" else "➖ Kurang Saldo"
         teks = (
             f"<b>{judul}</b>\n\n"
-            "Ketik dengan format ini:\n"
+            "Ketik angka lalu keterangan pakai format ini:\n"
             "<code>Angka#Keterangan</code>\n\n"
             "Contoh:\n"
-            "<code>50000#Beli Kopi</code>"
+            "<code>50000#Beli Kopi</code>\n\n"
+            "Kalau mau batal, tombol balik sudah di bawah."
         )
-        bot.send_message(message.chat.id, teks)
+        safe_render(bot, message, teks, _prompt_keyboard())
     except Exception as exc:
         notify_bug(bot, "start_transaction", exc)
 
@@ -61,7 +100,8 @@ def process_transaction_input(bot, message, supabase_client, action, notify_owne
         if "#" not in raw:
             bot.send_message(
                 message.chat.id,
-                "Format salah.\nPakai:\n<code>Angka#Keterangan</code>\nContoh: <code>50000#Beli Kopi</code>",
+                "Formatnya belum pas.\nPakai:\n<code>Angka#Keterangan</code>\nContoh: <code>50000#Beli Kopi</code>",
+                reply_markup=_nav_keyboard(),
             )
             return False
 
@@ -70,17 +110,17 @@ def process_transaction_input(bot, message, supabase_client, action, notify_owne
         keterangan = keterangan.strip()
 
         if not nominal_raw.isdigit():
-            bot.send_message(message.chat.id, "Nominal harus angka bulat.")
+            bot.send_message(message.chat.id, "Nominal harus angka bulat.", reply_markup=_nav_keyboard())
             return False
 
         nominal = int(nominal_raw)
         if nominal <= 0:
-            bot.send_message(message.chat.id, "Nominal harus lebih dari 0.")
+            bot.send_message(message.chat.id, "Nominal harus lebih dari 0.", reply_markup=_nav_keyboard())
             return False
 
         tipe = action.get("kind")
         if tipe not in ("income", "expense"):
-            bot.send_message(message.chat.id, "Jenis transaksi tidak valid.")
+            bot.send_message(message.chat.id, "Jenis transaksi tidak valid.", reply_markup=_nav_keyboard())
             return False
 
         row = {
@@ -93,15 +133,19 @@ def process_transaction_input(bot, message, supabase_client, action, notify_owne
         supabase_client.from_("transactions").insert(row).execute()
 
         icon = "➕" if tipe == "income" else "➖"
-        bot.send_message(
-            message.chat.id,
-            f"{icon} Tersimpan.\n\nNominal: {rupiah(nominal)}\nKeterangan: {escape(keterangan)}",
+        header = "Pemasukan masuk" if tipe == "income" else "Pengeluaran masuk"
+        text = (
+            f"✅ <b>{header}</b>\n\n"
+            f"{icon} {rupiah(nominal)}\n"
+            f"📝 {escape(keterangan)}\n\n"
+            "Mau lanjut catat lagi atau balik dulu?"
         )
+        bot.send_message(message.chat.id, text, reply_markup=_success_keyboard(tipe))
         return True
 
     except Exception as exc:
         notify_bug(bot, "process_transaction_input", exc, notify_owner=notify_owner)
-        bot.send_message(message.chat.id, "Gagal menyimpan transaksi.")
+        bot.send_message(message.chat.id, "Gagal menyimpan transaksi.", reply_markup=_nav_keyboard())
         return False
 
 
@@ -118,10 +162,12 @@ def show_last_transactions(bot, message, supabase_client, user_id, notify_owner=
         )
 
         if not rows:
-            text = "📋 <b>5 TRANSAKSI TERAKHIR</b>\n\nBelum ada transaksi."
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("⬅️ Kembali", callback_data="finance_menu"))
-            safe_render(bot, message, text, kb)
+            text = (
+                "📋 <b>5 TRANSAKSI TERAKHIR</b>\n\n"
+                "Belum ada transaksi.\n"
+                "Ayo isi pelan-pelan biar catatannya hidup."
+            )
+            safe_render(bot, message, text, _nav_keyboard())
             return
 
         lines = ["📋 <b>5 TRANSAKSI TERAKHIR</b>", ""]
@@ -137,14 +183,15 @@ def show_last_transactions(bot, message, supabase_client, user_id, notify_owner=
         kb = InlineKeyboardMarkup()
         kb.row(
             InlineKeyboardButton("🗑 Hapus Transaksi Terakhir", callback_data="txn_delete_last"),
-            InlineKeyboardButton("⬅️ Kembali", callback_data="finance_menu"),
+            InlineKeyboardButton("⬅️ Menu Keuangan", callback_data="finance_menu"),
         )
+        kb.row(InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"))
 
         safe_render(bot, message, "\n".join(lines).strip(), kb)
 
     except Exception as exc:
         notify_bug(bot, "show_last_transactions", exc, notify_owner=notify_owner)
-        bot.send_message(message.chat.id, "Gagal mengambil transaksi terakhir.")
+        bot.send_message(message.chat.id, "Gagal mengambil transaksi terakhir.", reply_markup=_nav_keyboard())
 
 
 def delete_last_transaction(bot, message, supabase_client, user_id, notify_owner=None):
@@ -160,17 +207,22 @@ def delete_last_transaction(bot, message, supabase_client, user_id, notify_owner
         )
 
         if not rows:
-            bot.send_message(message.chat.id, "Belum ada transaksi untuk dihapus.")
+            bot.send_message(message.chat.id, "Belum ada transaksi untuk dihapus.", reply_markup=_nav_keyboard())
             return
 
         tx_id = rows[0]["id"]
         supabase_client.from_("transactions").delete().eq("id", tx_id).execute()
-        bot.send_message(message.chat.id, "Transaksi terakhir sudah dihapus.")
+
+        bot.send_message(
+            message.chat.id,
+            "🗑 Transaksi terakhir sudah dihapus.\n\nDompet jadi lebih rapi lagi.",
+            reply_markup=_nav_keyboard(),
+        )
         show_last_transactions(bot, message, supabase_client, user_id, notify_owner=notify_owner)
 
     except Exception as exc:
         notify_bug(bot, "delete_last_transaction", exc, notify_owner=notify_owner)
-        bot.send_message(message.chat.id, "Gagal menghapus transaksi terakhir.")
+        bot.send_message(message.chat.id, "Gagal menghapus transaksi terakhir.", reply_markup=_nav_keyboard())
 
 
 def _bar(current, maximum, width=12):
@@ -199,9 +251,13 @@ def show_graph_report(bot, message, supabase_client, user_id, days, notify_owner
         title = f"📊 <b>GRAFIK {days} HARI</b>\n\n"
 
         if not rows:
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("⬅️ Kembali", callback_data="finance_menu"))
-            safe_render(bot, message, title + "Belum ada data transaksi.", kb)
+            kb = _nav_keyboard()
+            safe_render(
+                bot,
+                message,
+                title + "Belum ada data transaksi.\nIsi dulu biar grafiknya punya cerita.",
+                kb,
+            )
             return
 
         income = 0
@@ -225,9 +281,9 @@ def show_graph_report(bot, message, supabase_client, user_id, days, notify_owner
 
         lines = [
             title.rstrip(),
-            f"Pemasukan : {rupiah(income)}",
-            f"Pengeluaran: {rupiah(expense)}",
-            f"Saldo Bersih: {rupiah(net)}",
+            f"💰 Pemasukan : {rupiah(income)}",
+            f"💸 Pengeluaran: {rupiah(expense)}",
+            f"🧾 Saldo Bersih: {rupiah(net)}",
             "",
             "<b>Ringkasan Harian</b>",
         ]
@@ -235,13 +291,16 @@ def show_graph_report(bot, message, supabase_client, user_id, days, notify_owner
         for day in sorted(daily_net.keys()):
             val = daily_net[day]
             sign = "+" if val >= 0 else "-"
-            lines.append(f"{day} | {_bar(abs(val), max_abs)} {sign}{rupiah(abs(val))}")
+            lines.append(f"{day} | [{_bar(abs(val), max_abs)}] {sign}{rupiah(abs(val))}")
 
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("⬅️ Kembali", callback_data="finance_menu"))
+        kb.row(
+            InlineKeyboardButton("⬅️ Menu Keuangan", callback_data="finance_menu"),
+            InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
+        )
 
         safe_render(bot, message, "\n".join(lines), kb)
 
     except Exception as exc:
         notify_bug(bot, "show_graph_report", exc, notify_owner=notify_owner)
-        bot.send_message(message.chat.id, "Gagal membuat grafik.")
+        bot.send_message(message.chat.id, "Gagal membuat grafik.", reply_markup=_nav_keyboard())
