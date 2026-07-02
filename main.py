@@ -99,9 +99,9 @@ def finance_keyboard():
 def show_dashboard(message, edit=False):
     text = (
         "✨ <b>Halo! Selamat datang di MyAsistenBot</b> ✨\n\n"
-        "Mulai sekarang, mencatat pengeluaran, pemasukan, hingga memantau "
-        "target tabungan impianmu jadi lebih mudah dan rapi.\n\n"
-        "Yuk, pilih menu di bawah untuk mulai mengatur keuanganmu hari ini! 👇"
+        "Mulai sekarang, kamu bisa memantau semuanya disini yaaa "
+        "Semoga semuanya lancar .\n\n"
+        "Yuk, pilih menu di bawah untuk mulai mengeksplorasi semuanyaaa! 👇"
     )
     if edit:
         safe_edit_or_send(message, text, dashboard_keyboard())
