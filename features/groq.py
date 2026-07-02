@@ -1,5 +1,6 @@
 import os
 import tempfile
+import traceback
 
 from groq import Groq
 
@@ -7,11 +8,13 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 SYSTEM_PROMPT = os.getenv(
     "GROQ_SYSTEM_PROMPT",
-    "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
+    "Kamu adalah Nexus-2 Dengan seri BG45hY, jawab harus asik ramah jelas dan banyak emot juga, dalam Bahasa Indonesia."
 )
+
 
 def _clean_text(value: str) -> str:
     return (value or "").strip()
+
 
 class GroqAI:
     def __init__(self, supabase_client, bot):
@@ -28,11 +31,11 @@ class GroqAI:
             .select("role, message_text")
             .eq("user_id", str(user_id))
             .eq("ai_type", "groq")
-            .order("created_at", desc=False)
+            .order("created_at", desc=True)
             .limit(limit)
             .execute()
         )
-        rows = resp.data or []
+        rows = list(reversed(resp.data or []))
 
         messages = []
         for row in rows:
@@ -58,8 +61,8 @@ class GroqAI:
         file_info = self.bot.get_file(file_id)
         file_bytes = self.bot.download_file(file_info.file_path)
 
-        suffix = os.path.splitext(file_info.file_path)[1] or ".ogg"
-        fd, temp_path = tempfile.mkstemp(prefix="tg_voice_", suffix=suffix)
+        # Selalu pakai suffix .ogg supaya Groq mengenali voice Telegram sebagai audio valid.
+        fd, temp_path = tempfile.mkstemp(prefix="tg_voice_", suffix=".ogg")
         os.close(fd)
 
         with open(temp_path, "wb") as f:
@@ -76,6 +79,7 @@ class GroqAI:
                     file=audio_file,
                     model=WHISPER_MODEL,
                 )
+
             text = getattr(transcription, "text", None) or str(transcription)
             return _clean_text(text)
         finally:
@@ -97,7 +101,7 @@ class GroqAI:
             model=GROQ_MODEL,
             messages=messages,
             temperature=0.5,
-            max_completion_tokens=1024,
+            max_tokens=1024,
         )
 
         answer = chat_completion.choices[0].message.content or ""
