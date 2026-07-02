@@ -10,11 +10,13 @@ from google.genai import types
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 SYSTEM_PROMPT = os.getenv(
     "GEMINI_SYSTEM_PROMPT",
-    "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
+    "Kamu adalah Nexus-1 Dengan seri model NexusAistena127B-o, Jawab dengan rapih dan ramah juga asik dan banyak emot."
 )
+
 
 def _clean_text(value: str) -> str:
     return (value or "").strip()
+
 
 def _looks_like_rate_limit(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
@@ -26,6 +28,27 @@ def _looks_like_rate_limit(exc: Exception) -> bool:
         or "rate limit" in text
         or "quota" in text
     )
+
+
+def _extract_text(response: Any) -> str:
+    text = getattr(response, "text", None)
+    if text:
+        return _clean_text(text)
+
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            content = candidates[0].content
+            parts = getattr(content, "parts", None) or []
+            if parts:
+                part_text = getattr(parts[0], "text", None)
+                if part_text:
+                    return _clean_text(part_text)
+    except Exception:
+        pass
+
+    return ""
+
 
 class GeminiAI:
     def __init__(self, supabase_client):
@@ -60,11 +83,11 @@ class GeminiAI:
             .select("role, message_text")
             .eq("user_id", str(user_id))
             .eq("ai_type", "gemini")
-            .order("created_at", desc=False)
+            .order("created_at", desc=True)
             .limit(limit)
             .execute()
         )
-        rows = resp.data or []
+        rows = list(reversed(resp.data or []))
 
         history = []
         for row in rows:
@@ -120,8 +143,8 @@ class GeminiAI:
                     ),
                 )
 
-                answer = getattr(response, "text", None) or str(response)
-                answer = _clean_text(answer) or "Maaf, saya belum mendapat jawaban yang jelas."
+                answer = _extract_text(response)
+                answer = answer or "Maaf, saya belum mendapat jawaban yang jelas."
 
                 self._save_message(user_id, "user", prompt)
                 self._save_message(user_id, "assistant", answer)
@@ -130,12 +153,12 @@ class GeminiAI:
             except Exception as exc:
                 last_error = exc
                 if _looks_like_rate_limit(exc):
-                    # Kena 429 / quota / resource exhausted -> pindah key lalu retry.
+                    # Pindah key lalu retry, tanpa menampilkan error kuota ke user.
                     self._advance_key()
                     time.sleep(0.2)
                     continue
 
-                print(f"[GeminiAI] Error non-rate-limit: {exc}")
+                print(f"[GeminiAI] Error: {exc}")
                 print(traceback.format_exc())
                 break
 
