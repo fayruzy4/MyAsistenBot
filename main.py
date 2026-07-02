@@ -4,6 +4,7 @@ import traceback
 import threading
 from html import escape
 
+from dotenv import load_dotenv
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -39,17 +40,15 @@ from features.habit import (
     process_edit_habit_difficulty,
     show_habit_achievements,
 )
-
 from features.gemini import GeminiAI
 from features.groq import GroqAI
 
+load_dotenv()
 
-# ================= KONFIGURASI ENV =================
-
-TOKEN_BOT = os.environ.get("TOKEN_BOT", "").strip()
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
-PORT = int(os.environ.get("PORT", "10000"))
+TOKEN_BOT = os.getenv("TOKEN_BOT", "").strip()
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
+PORT = int(os.getenv("PORT", "10000"))
 
 if not TOKEN_BOT:
     raise RuntimeError("TOKEN_BOT belum dikonfigurasi di environment variables.")
@@ -57,9 +56,6 @@ if not SUPABASE_URL:
     raise RuntimeError("SUPABASE_URL belum dikonfigurasi di environment variables.")
 if not SUPABASE_KEY:
     raise RuntimeError("SUPABASE_KEY belum dikonfigurasi di environment variables.")
-
-
-# ================= INISIALISASI =================
 
 bot = telebot.TeleBot(TOKEN_BOT, parse_mode="HTML")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -79,8 +75,6 @@ except Exception as exc:
     print(f"[WARN] GroqAI tidak aktif: {exc}")
     groq_ai = None
 
-
-# ================= UTILITIES =================
 
 def report_error_to_console(where: str, exc: Exception):
     print(f"🚨 BUG TERDETEKSI di [{where}]: {exc}")
@@ -116,13 +110,11 @@ def reset_ai_memory(user_id: int):
 
 def ai_mode_status_text(mode: str) -> str:
     if mode == "ai_gemini":
-        return "🤖 <b>Mode Gemini aktif</b>\n\nKirim pertanyaan teks Anda. AI akan menjawab dengan memori percakapan dari database."
+        return "🤖 <b>Mode Gemini aktif</b>\n\nKirim pertanyaan teks. Gemini akan memakai memori dari database."
     if mode == "ai_groq":
-        return "🎙 <b>Mode Groq aktif</b>\n\nKirim teks atau voice note. Voice akan ditranskripsi dulu lalu dijawab."
+        return "🎙 <b>Mode Groq aktif</b>\n\nKirim teks atau voice note. Voice akan ditranskripsi dulu."
     return "Mode AI aktif."
 
-
-# ================= KEYBOARD UTAMA =================
 
 def dashboard_keyboard():
     kb = InlineKeyboardMarkup()
@@ -134,9 +126,7 @@ def dashboard_keyboard():
         InlineKeyboardButton("🤖 Gemini AI", callback_data="ai_gemini"),
         InlineKeyboardButton("🎙 Groq AI", callback_data="ai_groq"),
     )
-    kb.row(
-        InlineKeyboardButton("🚪 Keluar Mode", callback_data="exit_mode"),
-    )
+    kb.row(InlineKeyboardButton("🚪 Keluar Mode", callback_data="exit_mode"))
     return kb
 
 
@@ -158,14 +148,11 @@ def finance_keyboard():
     return kb
 
 
-# ================= TAMPILAN MENU =================
-
 def show_dashboard(message, edit=False):
     text = (
         "✨ <b>Halo! Selamat datang di Asisten Pribadimu</b> ✨\n\n"
-        "Di sini kamu bisa mengatur <b>Keuangan</b> agar tetap stabil, "
-        "memantau <b>Habit</b> agar hidup makin disiplin, "
-        "dan memakai <b>AI</b> untuk bantu ngobrol atau transkripsi voice.\n\n"
+        "Di sini kamu bisa mengatur <b>Keuangan</b>, memantau <b>Habit</b>, "
+        "dan memakai <b>AI</b> untuk ngobrol atau transkripsi voice.\n\n"
         "Pilih menu di bawah ini."
     )
     if edit:
@@ -182,25 +169,6 @@ def show_finance_menu(message):
     safe_edit_or_send(message, text, finance_keyboard())
 
 
-def show_ai_menu(message):
-    text = (
-        "🤖 <b>Menu AI</b>\n\n"
-        "Pilih mode yang kamu mau.\n"
-        "Gemini untuk chat teks dengan failover key.\n"
-        "Groq untuk teks dan voice note."
-    )
-    kb = InlineKeyboardMarkup()
-    kb.row(
-        InlineKeyboardButton("🤖 Gemini AI", callback_data="ai_gemini"),
-        InlineKeyboardButton("🎙 Groq AI", callback_data="ai_groq"),
-    )
-    kb.row(InlineKeyboardButton("🚪 Keluar Mode", callback_data="exit_mode"))
-    kb.row(InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"))
-    safe_edit_or_send(message, text, kb)
-
-
-# ================= FLASK ROUTE =================
-
 @app.route("/", methods=["GET"])
 def home():
     return "🚀 Asisten Bot Aktif dan Berjalan Baik!", 200
@@ -209,8 +177,6 @@ def home():
 def run_flask():
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
 
-
-# ================= COMMAND HANDLERS =================
 
 @bot.message_handler(commands=["start"])
 def handle_start(message):
@@ -225,7 +191,7 @@ def handle_start(message):
 @bot.message_handler(commands=["ai"])
 def handle_ai_menu(message):
     try:
-        show_ai_menu(message)
+        show_dashboard(message, edit=False)
     except Exception as exc:
         report_error_to_console("handle_ai_menu", exc)
         bot.send_message(message.chat.id, "Gagal membuka menu AI.")
@@ -268,8 +234,6 @@ def handle_reset(message):
         report_error_to_console("handle_reset", exc)
         bot.send_message(message.chat.id, "Gagal mereset memori AI.")
 
-
-# ================= PESAN TEKS =================
 
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
@@ -317,10 +281,8 @@ def handle_text(message):
 
     except Exception as exc:
         report_error_to_console("handle_text", exc)
-        bot.send_message(message.chat.id, "Waduh, ada gangguan saat memproses pesan Anda. Coba lagi ya.")
+        bot.send_message(message.chat.id, "Ada gangguan saat memproses pesan Anda.")
 
-
-# ================= VOICE NOTE =================
 
 @bot.message_handler(content_types=["voice"])
 def handle_voice(message):
@@ -339,8 +301,6 @@ def handle_voice(message):
         report_error_to_console("handle_voice", exc)
         bot.send_message(message.chat.id, "Gagal memproses voice note.")
 
-
-# ================= CALLBACK HANDLER =================
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -385,7 +345,6 @@ def handle_callback(call):
                 set_ai_mode(user_id, "ai_groq")
                 bot.send_message(call.message.chat.id, ai_mode_status_text("ai_groq"))
 
-        # ---------------- MENU KEUANGAN ----------------
         elif data == "txn_add_income":
             pending_actions[user_id] = {"kind": "income"}
             start_transaction(bot, call.message, "income")
@@ -420,7 +379,6 @@ def handle_callback(call):
         elif data == "target_delete_last":
             delete_last_target(bot, call.message, supabase, user_id)
 
-        # ---------------- MENU HABIT TRACKER ----------------
         elif data == "habit_dashboard":
             show_habit_dashboard(bot, call.message, supabase, user_id)
 
@@ -471,8 +429,6 @@ def handle_callback(call):
         report_error_to_console("handle_callback", exc)
         bot.send_message(call.message.chat.id, "Ups, sistem sedang memproses terlalu banyak permintaan. Coba lagi ya! 🛠️")
 
-
-# ================= MAIN LOOP =================
 
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)
