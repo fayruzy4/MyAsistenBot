@@ -43,7 +43,7 @@ def safe_render(bot, message, text, reply_markup=None):
 def _prompt_keyboard():
     kb = InlineKeyboardMarkup()
     kb.row(
-        InlineKeyboardButton("⬅️ Kembali ke Menu Keuangan", callback_data="txn_back_menu"),
+        InlineKeyboardButton("❌ Batal", callback_data="txn_back_menu"),
         InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
     )
     return kb
@@ -80,14 +80,14 @@ def _nav_keyboard():
 
 def start_transaction(bot, message, tipe):
     try:
-        judul = "➕ Tambah Saldo" if tipe == "income" else "➖ Kurang Saldo"
+        judul = "💰 Tambah Saldo" if tipe == "income" else "💸 Kurang Saldo"
         teks = (
             f"<b>{judul}</b>\n\n"
             "Ketik angka lalu keterangan pakai format ini:\n"
             "<code>Angka#Keterangan</code>\n\n"
             "Contoh:\n"
-            "<code>50000#Beli Kopi</code>\n\n"
-            "Kalau mau batal, tombol balik sudah di bawah."
+            "<code>50000#Gaji</code>\n\n"
+            "Kalau berubah pikiran, tekan tombol batal."
         )
         safe_render(bot, message, teks, _prompt_keyboard())
     except Exception as exc:
@@ -100,7 +100,7 @@ def process_transaction_input(bot, message, supabase_client, action, notify_owne
         if "#" not in raw:
             bot.send_message(
                 message.chat.id,
-                "Formatnya belum pas.\nPakai:\n<code>Angka#Keterangan</code>\nContoh: <code>50000#Beli Kopi</code>",
+                "Formatnya belum pas.\nPakai:\n<code>Angka#Keterangan</code>\nContoh: <code>50000#Gaji</code>",
                 reply_markup=_nav_keyboard(),
             )
             return False
@@ -183,7 +183,7 @@ def show_last_transactions(bot, message, supabase_client, user_id, notify_owner=
         kb = InlineKeyboardMarkup()
         kb.row(
             InlineKeyboardButton("🗑 Hapus Transaksi Terakhir", callback_data="txn_delete_last"),
-            InlineKeyboardButton("⬅️ Menu Keuangan", callback_data="finance_menu"),
+            InlineKeyboardButton("⬅️ Kembali", callback_data="finance_menu"),
         )
         kb.row(InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"))
 
@@ -251,56 +251,5 @@ def show_graph_report(bot, message, supabase_client, user_id, days, notify_owner
         title = f"📊 <b>GRAFIK {days} HARI</b>\n\n"
 
         if not rows:
-            kb = _nav_keyboard()
             safe_render(
-                bot,
-                message,
-                title + "Belum ada data transaksi.\nIsi dulu biar grafiknya punya cerita.",
-                kb,
-            )
-            return
-
-        income = 0
-        expense = 0
-        daily_net = defaultdict(int)
-
-        for item in rows:
-            nominal = int(item.get("nominal", 0))
-            tipe = item.get("tipe")
-            created = str(item.get("created_at", ""))[:10]
-
-            if tipe == "income":
-                income += nominal
-                daily_net[created] += nominal
-            else:
-                expense += nominal
-                daily_net[created] -= nominal
-
-        net = income - expense
-        max_abs = max([abs(v) for v in daily_net.values()] + [1])
-
-        lines = [
-            title.rstrip(),
-            f"💰 Pemasukan : {rupiah(income)}",
-            f"💸 Pengeluaran: {rupiah(expense)}",
-            f"🧾 Saldo Bersih: {rupiah(net)}",
-            "",
-            "<b>Ringkasan Harian</b>",
-        ]
-
-        for day in sorted(daily_net.keys()):
-            val = daily_net[day]
-            sign = "+" if val >= 0 else "-"
-            lines.append(f"{day} | [{_bar(abs(val), max_abs)}] {sign}{rupiah(abs(val))}")
-
-        kb = InlineKeyboardMarkup()
-        kb.row(
-            InlineKeyboardButton("⬅️ Menu Keuangan", callback_data="finance_menu"),
-            InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
-        )
-
-        safe_render(bot, message, "\n".join(lines), kb)
-
-    except Exception as exc:
-        notify_bug(bot, "show_graph_report", exc, notify_owner=notify_owner)
-        bot.send_message(message.chat.id, "Gagal membuat grafik.", reply_markup=_nav_keyboard())
+               
