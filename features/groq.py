@@ -10,10 +10,8 @@ SYSTEM_PROMPT = os.getenv(
     "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
 )
 
-
 def _clean_text(value: str) -> str:
     return (value or "").strip()
-
 
 class GroqAI:
     def __init__(self, supabase_client, bot):
@@ -77,8 +75,6 @@ class GroqAI:
                 transcription = self.client.audio.transcriptions.create(
                     file=audio_file,
                     model=WHISPER_MODEL,
-                    response_format="text",
-                    temperature=0.0,
                 )
             text = getattr(transcription, "text", None) or str(transcription)
             return _clean_text(text)
