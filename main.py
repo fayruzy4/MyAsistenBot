@@ -1,57 +1,74 @@
+import os
+import time
 import traceback
-import math
-from datetime import datetime, timedelta, timezone
-from html import escape
+import threading
+
+from flask import Flask
+import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from supabase import create_client
 
-# Zona Waktu WIB (UTC+7)
-WIB = timezone(timedelta(hours=7))
+# Import fitur (Tanpa fitur AI)
+from features.catat import (
+    start_transaction,
+    process_transaction_input,
+    show_last_transactions,
+    delete_last_transaction,
+    show_graph_report,
+)
+from features.target import (
+    show_target_menu,
+    show_target_detail,
+    start_add_target,
+    process_add_target,
+    delete_last_target,
+)
+# Import fitur Habit Tracker baru
+from features.habit import (
+    show_habit_dashboard,
+    handle_habit_toggle,
+    start_add_habit,
+    process_add_habit_difficulty,
+    process_add_habit_name,
+    show_habit_delete_list,
+    process_delete_habit_confirm,
+    show_habit_stats,
+    show_habit_manage_list,
+    show_habit_manage_options,
+    start_edit_habit_name,
+    process_edit_habit_name,
+    process_edit_habit_difficulty,
+    show_habit_achievements
+)
 
-# ================= KONFIGURASI LOGIKA RPG =================
+# Konfigurasi Environment
+TOKEN_BOT = os.environ.get("TOKEN_BOT", "").strip()
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+PORT = int(os.environ.get("PORT", "10000"))
 
-DIFFICULTY_XP = {
-    "mudah": 10,
-    "sedang": 20,
-    "sulit": 30,
-    "sangat_sulit": 50
-}
+if not TOKEN_BOT:
+    raise RuntimeError("TOKEN_BOT belum dikonfigurasi di environment variables.")
+if not SUPABASE_URL:
+    raise RuntimeError("SUPABASE_URL belum dikonfigurasi di environment variables.")
+if not SUPABASE_KEY:
+    raise RuntimeError("SUPABASE_KEY belum dikonfigurasi di environment variables.")
 
-DIFFICULTY_LABEL = {
-    "mudah": "🟢 Mudah",
-    "sedang": "🟡 Sedang",
-    "sulit": "🔴 Sulit",
-    "sangat_sulit": "🔥 Sangat Sulit"
-}
+# Inisialisasi Bot, Database, dan Flask
+bot = telebot.TeleBot(TOKEN_BOT, parse_mode="HTML")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+app = Flask(__name__)
 
-def get_today_str():
-    return datetime.now(WIB).strftime("%Y-%m-%d")
+# State management sederhana untuk input user
+pending_actions = {}
 
-def calculate_level(xp):
-    """Rumus RPG klasik: Level = floor((1 + sqrt(1 + 8 * XP / 100)) / 2)"""
-    if xp < 0:
-        return 1
-    return math.floor((1 + math.sqrt(1 + 8 * xp / 100)) / 2)
 
-def get_rank_name(level):
-    """Pangkat militer elegan berdasarkan level."""
-    if level < 3: return "Recruit"
-    if level < 5: return "Cadet"
-    if level < 8: return "Private"
-    if level < 12: return "Corporal"
-    if level < 16: return "Sergeant"
-    if level < 22: return "Lieutenant"
-    if level < 30: return "Captain"
-    if level < 40: return "Major"
-    if level < 50: return "Colonel"
-    if level < 60: return "Commander"
-    if level < 75: return "Senior Commander"
-    if level < 90: return "General"
-    if level < 100: return "Grand General"
-    return "Supreme Commander"
+def report_error_to_console(where: str, exc: Exception):
+    print(f"🚨 BUG TERDETEKSI di [{where}]: {exc}")
+    print(traceback.format_exc())
 
-# ================= HELPERS & UI =================
 
-def safe_render(bot, message, text, reply_markup=None):
+def safe_edit_or_send(message, text, reply_markup=None):
     try:
         bot.edit_message_text(
             text=text,
@@ -59,381 +76,234 @@ def safe_render(bot, message, text, reply_markup=None):
             message_id=message.message_id,
             reply_markup=reply_markup,
         )
+    except telebot.apihelper.ApiTelegramException as e:
+        if "message is not modified" not in str(e).lower():
+            bot.send_message(message.chat.id, text, reply_markup=reply_markup)
     except Exception:
         bot.send_message(message.chat.id, text, reply_markup=reply_markup)
 
-def get_habit_nav_keyboard():
+
+# ================= KUMPULAN KEYBOARD UTAMA =================
+
+def dashboard_keyboard():
     kb = InlineKeyboardMarkup()
-    kb.row(InlineKeyboardButton("❌ Batal", callback_data="habit_dashboard"))
-    kb.row(
-        InlineKeyboardButton("⬅️ Dashboard Habit", callback_data="habit_dashboard"),
-        InlineKeyboardButton("🏠 Menu Utama", callback_data="back_dashboard")
-    )
+    kb.row(InlineKeyboardButton("💼 Menu Keuangan", callback_data="finance_menu"))
+    kb.row(InlineKeyboardButton("🎯 Habit Tracker (Disiplin)", callback_data="habit_dashboard"))
     return kb
 
-# ================= FUNGSI DATABASE HABIT =================
 
-def get_or_create_stats(supabase, user_id):
-    resp = supabase.table("habit_stats").select("*").eq("user_id", str(user_id)).execute()
-    if not resp.data:
-        new_data = {"user_id": str(user_id), "xp": 0, "level": 1, "current_streak": 0}
-        supabase.table("habit_stats").insert(new_data).execute()
-        return new_data
-    return resp.data[0]
-
-def update_stats(supabase, user_id, xp_delta, streak_delta=0, update_active_date=True):
-    stats = get_or_create_stats(supabase, user_id)
-    new_xp = max(0, stats["xp"] + xp_delta)
-    new_level = calculate_level(new_xp)
-    new_streak = max(0, stats["current_streak"] + streak_delta)
-    highest = max(stats["highest_streak"], new_streak)
-    
-    update_data = {
-        "xp": new_xp,
-        "level": new_level,
-        "current_streak": new_streak,
-        "highest_streak": highest
-    }
-    
-    if update_active_date:
-        update_data["last_active_date"] = get_today_str()
-        
-    supabase.table("habit_stats").update(update_data).eq("user_id", str(user_id)).execute()
-    return update_data
-
-# ================= DASHBOARD & CHECKLIST =================
-
-def show_habit_dashboard(bot, message, supabase, user_id):
-    try:
-        stats = get_or_create_stats(supabase, user_id)
-        today = get_today_str()
-        
-        # Logika reset streak jika bolong
-        last_active = stats.get("last_active_date")
-        if last_active:
-            last_date_obj = datetime.strptime(last_active, "%Y-%m-%d")
-            today_obj = datetime.strptime(today, "%Y-%m-%d")
-            diff_days = (today_obj - last_date_obj).days
-            
-            # Jika user bolong lebih dari 1 hari dan dia gak komplit di hari sebelumnya
-            # (Untuk simpel, jika diff > 1 hari, streak reset)
-            if diff_days > 1:
-                stats = update_stats(supabase, user_id, 0, -stats["current_streak"], update_active_date=True)
-            elif diff_days == 1:
-                # Update last active untuk hari ini
-                supabase.table("habit_stats").update({"last_active_date": today}).eq("user_id", str(user_id)).execute()
-        else:
-            supabase.table("habit_stats").update({"last_active_date": today}).eq("user_id", str(user_id)).execute()
-
-        # Fetch Habits & Logs
-        habits_resp = supabase.table("habits").select("*").eq("user_id", str(user_id)).eq("is_active", True).execute()
-        habits = habits_resp.data
-
-        logs_resp = supabase.table("habit_logs").select("habit_id").eq("user_id", str(user_id)).eq("log_date", today).execute()
-        completed_habit_ids = [log["habit_id"] for log in logs_resp.data]
-
-        total_habits = len(habits)
-        done_habits = len(completed_habit_ids)
-        
-        rank = get_rank_name(stats["level"])
-        
-        text = (
-            f"🎯 <b>Habit Tracker</b>\n\n"
-            f"🔥 <b>Streak:</b> {stats['current_streak']} Hari\n"
-            f"⭐ <b>Level:</b> {stats['level']} | 🏅 <b>Rank:</b> {rank}\n"
-            f"⚡ <b>XP Total:</b> {stats['xp']}\n\n"
-            f"📝 <b>Progress Hari Ini:</b> {done_habits}/{total_habits} Selesai\n"
-        )
-        
-        if total_habits == 0:
-            text += "\n<i>Kamu belum punya kebiasaan yang dicatat. Yuk buat sekarang!</i>"
-        elif done_habits == total_habits:
-            text += "\n🎉 <i>Luar biasa! Semua target hari ini tuntas!</i>"
-        else:
-            text += "\n<i>Ayo selesaikan targetmu hari ini!</i>"
-
-        kb = InlineKeyboardMarkup()
-        
-        # Render Checklist Button
-        for h in habits:
-            is_done = h["id"] in completed_habit_ids
-            icon = "☑" if is_done else "☐"
-            btn_text = f"{icon} {h['name']}"
-            kb.row(InlineKeyboardButton(btn_text, callback_data=f"habit_toggle:{h['id']}"))
-            
-        kb.row(
-            InlineKeyboardButton("➕ Tambah", callback_data="habit_add_start"),
-            InlineKeyboardButton("📋 Kelola", callback_data="habit_manage_list")
-        )
-        kb.row(
-            InlineKeyboardButton("📊 Statistik", callback_data="habit_stats"),
-            InlineKeyboardButton("🗑 Hapus", callback_data="habit_delete_list")
-        )
-        kb.row(InlineKeyboardButton("⬅️ Dashboard Utama", callback_data="back_dashboard"))
-
-        safe_render(bot, message, text, kb)
-
-    except Exception as exc:
-        print(f"Error di show_habit_dashboard: {exc}")
-        bot.send_message(message.chat.id, "😔 Gagal memuat Habit Tracker.")
-
-def handle_habit_toggle(bot, call, supabase, user_id, habit_id):
-    try:
-        today = get_today_str()
-        
-        # Cek habit info
-        habit_resp = supabase.table("habits").select("difficulty").eq("id", habit_id).execute()
-        if not habit_resp.data:
-            bot.answer_callback_query(call.id, "Habit tidak ditemukan.")
-            return
-            
-        difficulty = habit_resp.data[0]["difficulty"]
-        xp_value = DIFFICULTY_XP.get(difficulty, 10)
-        
-        # Cek apakah sudah dicentang
-        log_resp = supabase.table("habit_logs").select("id").eq("habit_id", habit_id).eq("log_date", today).execute()
-        is_already_done = len(log_resp.data) > 0
-        
-        if is_already_done:
-            # Uncheck
-            supabase.table("habit_logs").delete().eq("habit_id", habit_id).eq("log_date", today).execute()
-            update_stats(supabase, user_id, -xp_value)
-            bot.answer_callback_query(call.id, "Dibatalkan. Yah, semangat lagi ya!")
-        else:
-            # Check
-            supabase.table("habit_logs").insert({
-                "habit_id": habit_id,
-                "user_id": str(user_id),
-                "log_date": today
-            }).execute()
-            
-            # Cek apakah ini melengkapi semua habit hari ini (Bonus Streak)
-            habits_resp = supabase.table("habits").select("id").eq("user_id", str(user_id)).eq("is_active", True).execute()
-            logs_resp = supabase.table("habit_logs").select("habit_id").eq("user_id", str(user_id)).eq("log_date", today).execute()
-            
-            is_all_done = len(logs_resp.data) == len(habits_resp.data)
-            
-            xp_gained = xp_value
-            streak_added = 0
-            msg_toast = f"+{xp_value} XP! Lanjutkan!"
-            
-            if is_all_done:
-                xp_gained += 50  # Bonus All Done
-                streak_added = 1
-                msg_toast = f"🎉 Keren! Semua selesai! +{xp_gained} XP & Streak Naik!"
-                
-            update_stats(supabase, user_id, xp_gained, streak_added)
-            bot.answer_callback_query(call.id, msg_toast)
-
-        # Re-render dashboard
-        show_habit_dashboard(bot, call.message, supabase, user_id)
-        
-    except Exception as exc:
-        print(f"Error di handle_habit_toggle: {exc}")
-        bot.answer_callback_query(call.id, "Gagal mengubah status.")
-
-# ================= TAMBAH HABIT =================
-
-def start_add_habit(bot, message):
-    text = (
-        "➕ <b>Tambah Kebiasaan Baru</b>\n\n"
-        "Seberapa sulit kebiasaan ini untuk kamu lakukan setiap hari?"
-    )
+def finance_keyboard():
     kb = InlineKeyboardMarkup()
     kb.row(
-        InlineKeyboardButton("🟢 Mudah", callback_data="habit_add_diff:mudah"),
-        InlineKeyboardButton("🟡 Sedang", callback_data="habit_add_diff:sedang")
+        InlineKeyboardButton("💰 Tambah Saldo", callback_data="txn_add_income"),
+        InlineKeyboardButton("💸 Kurang Saldo", callback_data="txn_add_expense"),
     )
     kb.row(
-        InlineKeyboardButton("🔴 Sulit", callback_data="habit_add_diff:sulit"),
-        InlineKeyboardButton("🔥 Sangat Sulit", callback_data="habit_add_diff:sangat_sulit")
+        InlineKeyboardButton("📊 Grafik 7 Hari", callback_data="graph_7"),
+        InlineKeyboardButton("📊 Grafik 30 Hari", callback_data="graph_30"),
     )
-    kb.row(InlineKeyboardButton("⬅️ Kembali", callback_data="habit_dashboard"))
-    
-    safe_render(bot, message, text, kb)
+    kb.row(
+        InlineKeyboardButton("🎯 Target Tabungan", callback_data="target_menu"),
+        InlineKeyboardButton("📋 Riwayat Transaksi", callback_data="txn_recent"),
+    )
+    kb.row(InlineKeyboardButton("🏠 Kembali ke Dashboard", callback_data="back_dashboard"))
+    return kb
 
-def process_add_habit_difficulty(bot, message, diff):
+
+# ================= TAMPILAN MENU =================
+
+def show_dashboard(message, edit=False):
     text = (
-        f"Kategori: {DIFFICULTY_LABEL.get(diff, diff)}\n\n"
-        "Silakan ketik <b>Nama Kebiasaan</b> yang ingin kamu bangun!\n"
-        "<i>Contoh: Sholat Subuh Tepat Waktu, Lari 15 Menit, dsb.</i>\n\n"
-        "Ketik dan kirim ke bot sekarang. 👇"
+        "✨ <b>Halo! Selamat datang di Asisten Pribadimu</b> ✨\n\n"
+        "Di sini kamu bisa mengatur <b>Keuangan</b> agar tetap stabil, "
+        "dan memantau <b>Habit (Kebiasaan)</b> agar hidupmu makin disiplin.\n\n"
+        "Yuk, pilih menu di bawah ini! 👇"
     )
-    # Kirim sebagai pesan baru agar user sadar harus ngetik
-    bot.send_message(message.chat.id, text, reply_markup=get_habit_nav_keyboard())
+    if edit:
+        safe_edit_or_send(message, text, dashboard_keyboard())
+    else:
+        bot.send_message(message.chat.id, text, reply_markup=dashboard_keyboard())
 
-def process_add_habit_name(bot, message, supabase, action):
+
+def show_finance_menu(message):
+    text = (
+        "💼 <b>Menu Keuangan Utama</b>\n\n"
+        "Pilih aktivitas yang ingin kamu catat hari ini. "
+        "Jangan lupa catat pengeluaran kecil agar keuangan tetap aman! ✅"
+    )
+    safe_edit_or_send(message, text, finance_keyboard())
+
+
+# ================= FLASK ROUTES (KEEP ALIVE) =================
+
+@app.route("/", methods=["GET"])
+def home():
+    return "🚀 Asisten Bot Aktif dan Berjalan Baik!", 200
+
+
+def run_flask():
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
+
+
+# ================= HANDLERS =================
+
+@bot.message_handler(commands=["start"])
+def handle_start(message):
     try:
-        name = (message.text or "").strip()
-        diff = action.get("diff", "mudah")
-        
-        if len(name) < 3:
-            bot.send_message(
-                message.chat.id, 
-                "⚠️ Nama habit terlalu pendek. Coba ketik yang lebih jelas ya!",
-                reply_markup=get_habit_nav_keyboard()
-            )
-            return False
-
-        supabase.table("habits").insert({
-            "user_id": str(message.from_user.id),
-            "name": escape(name),
-            "difficulty": diff
-        }).execute()
-        
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("⬅️ Kembali ke Habit Dashboard", callback_data="habit_dashboard"))
-        
-        bot.send_message(
-            message.chat.id,
-            f"✅ <b>Berhasil Disimpan!</b>\n\nHabit <b>{escape(name)}</b> sekarang siap untuk ditaklukkan setiap hari! 💪",
-            reply_markup=kb
-        )
-        return True
+        pending_actions.pop(message.from_user.id, None)
+        show_dashboard(message, edit=False)
     except Exception as exc:
-        print(f"Error process_add_habit_name: {exc}")
-        return False
+        report_error_to_console("handle_start", exc)
+        bot.send_message(message.chat.id, "Ups! Terjadi kendala teknis saat memuat dashboard. 😔")
 
-# ================= KELOLA & EDIT HABIT =================
 
-def show_habit_manage_list(bot, message, supabase, user_id):
+@bot.message_handler(content_types=["text"])
+def handle_text(message):
     try:
-        resp = supabase.table("habits").select("id, name, difficulty").eq("user_id", str(user_id)).eq("is_active", True).execute()
-        habits = resp.data
-        
-        kb = InlineKeyboardMarkup()
-        if not habits:
-            kb.row(InlineKeyboardButton("⬅️ Kembali", callback_data="habit_dashboard"))
-            safe_render(bot, message, "Belum ada habit untuk dikelola.", kb)
+        if not message.text or message.text.startswith("/"):
             return
 
-        for h in habits:
-            kb.row(InlineKeyboardButton(f"📝 {h['name']}", callback_data=f"habit_manage_opt:{h['id']}"))
-            
-        kb.row(InlineKeyboardButton("⬅️ Kembali", callback_data="habit_dashboard"))
-        safe_render(bot, message, "📋 <b>Kelola Habit</b>\n\nPilih habit yang ingin kamu edit pengaturannya:", kb)
-    except Exception:
-        bot.send_message(message.chat.id, "Gagal memuat kelola habit.")
+        user_id = message.from_user.id
+        action = pending_actions.get(user_id)
 
-def show_habit_manage_options(bot, message, habit_id):
-    kb = InlineKeyboardMarkup()
-    kb.row(InlineKeyboardButton("✏️ Ubah Nama", callback_data=f"habit_edit_name:{habit_id}"))
-    kb.row(
-        InlineKeyboardButton("🟢 Mudah", callback_data=f"habit_edit_diff:{habit_id}:mudah"),
-        InlineKeyboardButton("🟡 Sedang", callback_data=f"habit_edit_diff:{habit_id}:sedang")
-    )
-    kb.row(
-        InlineKeyboardButton("🔴 Sulit", callback_data=f"habit_edit_diff:{habit_id}:sulit"),
-        InlineKeyboardButton("🔥 Epic", callback_data=f"habit_edit_diff:{habit_id}:sangat_sulit")
-    )
-    kb.row(InlineKeyboardButton("⬅️ Batal / Kembali", callback_data="habit_manage_list"))
-    
-    text = "⚙️ <b>Edit Habit</b>\n\nPilih tindakan yang ingin kamu lakukan atau pilih langsung kesulitan barunya:"
-    safe_render(bot, message, text, kb)
-
-def start_edit_habit_name(bot, message):
-    text = "Silakan ketik <b>Nama Baru</b> untuk habit ini dan kirim ke bot:"
-    bot.send_message(message.chat.id, text, reply_markup=get_habit_nav_keyboard())
-
-def process_edit_habit_name(bot, message, supabase, action):
-    try:
-        new_name = (message.text or "").strip()
-        habit_id = action.get("habit_id")
-        
-        if len(new_name) < 3:
-            bot.send_message(message.chat.id, "Nama terlalu pendek.", reply_markup=get_habit_nav_keyboard())
-            return False
-            
-        supabase.table("habits").update({"name": escape(new_name)}).eq("id", habit_id).execute()
-        
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("⬅️ Lanjut Kelola", callback_data="habit_manage_list"))
-        bot.send_message(message.chat.id, f"✅ Nama berhasil diubah menjadi: <b>{escape(new_name)}</b>", reply_markup=kb)
-        return True
-    except Exception:
-        return False
-
-def process_edit_habit_difficulty(bot, message, supabase, user_id, habit_id, new_diff):
-    try:
-        supabase.table("habits").update({"difficulty": new_diff}).eq("id", habit_id).execute()
-        show_habit_manage_list(bot, message, supabase, user_id)
-    except Exception:
-        bot.send_message(message.chat.id, "Gagal mengubah kesulitan.")
-
-# ================= HAPUS HABIT =================
-
-def show_habit_delete_list(bot, message, supabase, user_id):
-    try:
-        resp = supabase.table("habits").select("id, name").eq("user_id", str(user_id)).eq("is_active", True).execute()
-        habits = resp.data
-        
-        kb = InlineKeyboardMarkup()
-        if not habits:
-            kb.row(InlineKeyboardButton("⬅️ Kembali", callback_data="habit_dashboard"))
-            safe_render(bot, message, "Belum ada habit untuk dihapus.", kb)
+        if not action:
             return
 
-        for h in habits:
-            kb.row(InlineKeyboardButton(f"🗑 Hapus: {h['name']}", callback_data=f"habit_delete_confirm:{h['id']}"))
-            
-        kb.row(InlineKeyboardButton("⬅️ Kembali", callback_data="habit_dashboard"))
-        safe_render(bot, message, "⚠️ <b>Hapus Habit</b>\n\nPilih habit yang ingin dihapus. Tindakan ini membuat habit tidak akan muncul lagi di checklist.", kb)
-    except Exception:
-        bot.send_message(message.chat.id, "Gagal memuat daftar hapus.")
+        kind = action.get("kind")
+        success = False
 
-def process_delete_habit_confirm(bot, message, supabase, user_id, habit_id):
-    try:
-        supabase.table("habits").update({"is_active": False}).eq("id", habit_id).execute()
-        show_habit_delete_list(bot, message, supabase, user_id)
-    except Exception:
-        bot.send_message(message.chat.id, "Gagal menghapus habit.")
+        if kind in ("income", "expense"):
+            success = process_transaction_input(bot, message, supabase, action)
+        elif kind == "add_target":
+            success = process_add_target(bot, message, supabase)
+        elif kind == "habit_add_name":
+            success = process_add_habit_name(bot, message, supabase, action)
+        elif kind == "habit_edit_name":
+            success = process_edit_habit_name(bot, message, supabase, action)
 
-# ================= STATISTIK & ACHIEVEMENT =================
+        if success:
+            pending_actions.pop(user_id, None)
 
-def show_habit_stats(bot, message, supabase, user_id):
-    try:
-        stats = get_or_create_stats(supabase, user_id)
-        
-        habits_resp = supabase.table("habits").select("id").eq("user_id", str(user_id)).eq("is_active", True).execute()
-        total_habits = len(habits_resp.data)
-        
-        logs_resp = supabase.table("habit_logs").select("id", count="exact").eq("user_id", str(user_id)).execute()
-        total_logs = logs_resp.count or 0
+    except Exception as exc:
+        report_error_to_console("handle_text", exc)
+        bot.send_message(message.chat.id, "Waduh, ada sedikit gangguan saat mencatat data kamu. Coba lagi ya! 🙏")
 
-        rank = get_rank_name(stats["level"])
-        next_level_xp = (stats["level"]) * (stats["level"]) * 100 # Rough visualization
-        
-        text = (
-            "📊 <b>Statistik Karir Disiplinmu</b>\n\n"
-            f"🏅 <b>Pangkat:</b> {rank}\n"
-            f"⭐ <b>Level:</b> {stats['level']}\n"
-            f"⚡ <b>Total XP:</b> {stats['xp']}\n\n"
-            f"🔥 <b>Streak Saat Ini:</b> {stats['current_streak']} Hari\n"
-            f"👑 <b>Streak Tertinggi:</b> {stats['highest_streak']} Hari\n\n"
-            f"📋 <b>Total Habit Aktif:</b> {total_habits}\n"
-            f"✅ <b>Total Checklist Diselesaikan:</b> {total_logs} kali\n\n"
-            "<i>Terus pertahankan konsistensimu untuk naik pangkat! Jenderal Besar menunggu!</i>"
-        )
-        
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("🏆 Lihat Achievement", callback_data="habit_achievements"))
-        kb.row(InlineKeyboardButton("⬅️ Kembali", callback_data="habit_dashboard"))
-        
-        safe_render(bot, message, text, kb)
-    except Exception:
-        bot.send_message(message.chat.id, "Gagal memuat statistik.")
 
-def show_habit_achievements(bot, message, supabase, user_id):
-    text = (
-        "🏆 <b>Ruang Pencapaian (Achievements)</b>\n\n"
-        "<i>Fitur Achievement akan otomatis terbuka berdasarkan statistik yang kamu capai!</i>\n\n"
-        "🔒 <b>Prajurit Rajin:</b> Selesaikan 10 Checklist (Terkunci)\n"
-        "🔒 <b>7 Hari Berturut:</b> Streak 7 Hari (Terkunci)\n"
-        "🔒 <b>Master Komandan:</b> Capai Level 60 (Terkunci)\n\n"
-        "<i>(Sistem Achievement akan disinkronkan secara otomatis saat kamu melakukan progress)</i>"
-    )
-    kb = InlineKeyboardMarkup()
-    kb.row(InlineKeyboardButton("⬅️ Kembali ke Statistik", callback_data="habit_stats"))
-    kb.row(InlineKeyboardButton("⬅️ Dashboard Habit", callback_data="habit_dashboard"))
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    user_id = call.from_user.id
+    data = call.data or ""
     
-    safe_render(bot, message, text, kb)
+    try:
+        # Panggil answer_callback_query di awal untuk mencegah error "query is too old"
+        if not data.startswith("habit_toggle"):
+            bot.answer_callback_query(call.id)
+
+        # Hapus state input jika menekan tombol navigasi
+        if data in ["finance_menu", "back_dashboard", "cancel_input", "habit_dashboard"]:
+            pending_actions.pop(user_id, None)
+
+        # ---------------- MENU NAVIGASI UMUM ----------------
+        if data == "finance_menu":
+            show_finance_menu(call.message)
+        elif data == "cancel_input":
+            # Batal pintar, jika state habit kembali ke habit, jika finance ke finance
+            if pending_actions.get(user_id, {}).get("kind", "").startswith("habit_"):
+                pending_actions.pop(user_id, None)
+                show_habit_dashboard(bot, call.message, supabase, user_id)
+            else:
+                pending_actions.pop(user_id, None)
+                show_dashboard(call.message, edit=True)
+        elif data == "back_dashboard":
+            show_dashboard(call.message, edit=True)
+
+        # ---------------- MENU KEUANGAN ----------------
+        elif data == "txn_add_income":
+            pending_actions[user_id] = {"kind": "income"}
+            start_transaction(bot, call.message, "income")
+        elif data == "txn_add_expense":
+            pending_actions[user_id] = {"kind": "expense"}
+            start_transaction(bot, call.message, "expense")
+        elif data == "txn_recent":
+            show_last_transactions(bot, call.message, supabase, user_id)
+        elif data == "txn_delete_last":
+            delete_last_transaction(bot, call.message, supabase, user_id)
+        elif data == "graph_7":
+            show_graph_report(bot, call.message, supabase, user_id, 7)
+        elif data == "graph_30":
+            show_graph_report(bot, call.message, supabase, user_id, 30)
+        elif data == "target_menu":
+            show_target_menu(bot, call.message, supabase, user_id)
+        elif data.startswith("target_detail:"):
+            target_id = data.split(":", 1)[1]
+            show_target_detail(bot, call.message, supabase, user_id, target_id)
+        elif data == "target_add":
+            pending_actions[user_id] = {"kind": "add_target"}
+            start_add_target(bot, call.message)
+        elif data == "target_delete_last":
+            delete_last_target(bot, call.message, supabase, user_id)
+
+        # ---------------- MENU HABIT TRACKER ----------------
+        elif data == "habit_dashboard":
+            show_habit_dashboard(bot, call.message, supabase, user_id)
+            
+        elif data.startswith("habit_toggle:"):
+            habit_id = data.split(":", 1)[1]
+            handle_habit_toggle(bot, call, supabase, user_id, habit_id)
+
+        elif data == "habit_add_start":
+            start_add_habit(bot, call.message)
+
+        elif data.startswith("habit_add_diff:"):
+            diff = data.split(":", 1)[1]
+            pending_actions[user_id] = {"kind": "habit_add_name", "diff": diff}
+            process_add_habit_difficulty(bot, call.message, diff)
+
+        elif data == "habit_delete_list":
+            show_habit_delete_list(bot, call.message, supabase, user_id)
+
+        elif data.startswith("habit_delete_confirm:"):
+            habit_id = data.split(":", 1)[1]
+            process_delete_habit_confirm(bot, call.message, supabase, user_id, habit_id)
+
+        elif data == "habit_manage_list":
+            show_habit_manage_list(bot, call.message, supabase, user_id)
+
+        elif data.startswith("habit_manage_opt:"):
+            habit_id = data.split(":", 1)[1]
+            show_habit_manage_options(bot, call.message, habit_id)
+
+        elif data.startswith("habit_edit_name:"):
+            habit_id = data.split(":", 1)[1]
+            pending_actions[user_id] = {"kind": "habit_edit_name", "habit_id": habit_id}
+            start_edit_habit_name(bot, call.message)
+
+        elif data.startswith("habit_edit_diff:"):
+            parts = data.split(":")
+            habit_id = parts[1]
+            diff = parts[2]
+            process_edit_habit_difficulty(bot, call.message, supabase, user_id, habit_id, diff)
+
+        elif data == "habit_stats":
+            show_habit_stats(bot, call.message, supabase, user_id)
+
+        elif data == "habit_achievements":
+            show_habit_achievements(bot, call.message, supabase, user_id)
+
+    except Exception as exc:
+        report_error_to_console("handle_callback", exc)
+        bot.send_message(call.message.chat.id, "Ups, sistem sedang memproses terlalu banyak permintaan. Coba lagi ya! 🛠️")
+
+
+if __name__ == "__main__":
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    time.sleep(1)
+
+    print("🤖 Bot Asisten berhasil diaktifkan dan sedang berjalan...")
+    while True:
+        try:
+            bot.infinity_polling(skip_pending=True, timeout=30, long_polling_timeout=30)
+        except Exception as exc:
+            report_error_to_console("bot.infinity_polling", exc)
+            time.sleep(5)
