@@ -13,10 +13,8 @@ SYSTEM_PROMPT = os.getenv(
     "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
 )
 
-
 def _clean_text(value: str) -> str:
     return (value or "").strip()
-
 
 def _looks_like_rate_limit(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
@@ -28,7 +26,6 @@ def _looks_like_rate_limit(exc: Exception) -> bool:
         or "rate limit" in text
         or "quota" in text
     )
-
 
 class GeminiAI:
     def __init__(self, supabase_client):
@@ -72,7 +69,6 @@ class GeminiAI:
         history = []
         for row in rows:
             role = row.get("role", "user")
-            # Gemini chat history resmi memakai role `model` untuk balasan asisten.
             if role == "assistant":
                 role = "model"
             elif role not in ("user", "model"):
@@ -109,15 +105,21 @@ class GeminiAI:
         for _ in range(attempts):
             client = self._build_client()
             try:
-                chat = client.chats.create(
+                contents = list(history)
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": prompt}],
+                })
+
+                response = client.models.generate_content(
                     model=GEMINI_MODEL,
-                    history=history,
+                    contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,
                         temperature=0.4,
                     ),
                 )
-                response = chat.send_message(message=prompt)
+
                 answer = getattr(response, "text", None) or str(response)
                 answer = _clean_text(answer) or "Maaf, saya belum mendapat jawaban yang jelas."
 
@@ -128,7 +130,7 @@ class GeminiAI:
             except Exception as exc:
                 last_error = exc
                 if _looks_like_rate_limit(exc):
-                    # Jika quota/rate limit kena, pindah key lalu retry tanpa menampilkan error ke user.
+                    # Kena 429 / quota / resource exhausted -> pindah key lalu retry.
                     self._advance_key()
                     time.sleep(0.2)
                     continue
