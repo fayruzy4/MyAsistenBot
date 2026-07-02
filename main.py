@@ -3,6 +3,7 @@ import time
 import traceback
 import threading
 
+from dotenv import load_dotenv
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -23,6 +24,8 @@ from features.target import (
     delete_last_target,
     reset_ai_memories,
 )
+
+load_dotenv()
 
 TOKEN_BOT = os.environ.get("TOKEN_BOT", "").strip()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
@@ -103,8 +106,9 @@ def finance_keyboard():
 def show_dashboard(message, edit=False):
     text = (
         "<b>Dashboard Utama</b>\n\n"
-        "Ini halaman depan bot.\n"
-        "Tekan tombol di bawah untuk masuk ke menu keuangan."
+        "✨ Halo, ini pusat kendali dompetmu.\n"
+        "Pilih menu keuangan kalau mau mulai.\n"
+        "Kalau nyangkut, tombol balik selalu ada."
     )
     if edit:
         safe_edit_or_send(message, text, dashboard_keyboard())
@@ -114,8 +118,9 @@ def show_dashboard(message, edit=False):
 
 def show_finance_menu(message):
     text = (
-        "<b>Menu Utama Keuangan</b>\n\n"
-        "Pilih tombol yang mau dipakai."
+        "<b>Menu Keuangan</b>\n\n"
+        "Pilih langkah berikutnya.\n"
+        "Santai saja, setiap halaman punya tombol kembali."
     )
     safe_edit_or_send(message, text, finance_keyboard())
 
@@ -168,8 +173,8 @@ def handle_text(message):
             return
 
         kind = action.get("kind")
-
         ok = False
+
         if kind in ("income", "expense"):
             ok = process_transaction_input(
                 bot=bot,
@@ -203,10 +208,17 @@ def handle_callback(call):
 
         if data == "finance_menu":
             show_finance_menu(call.message)
+            bot.answer_callback_query(call.id, "Masuk ke menu keuangan.")
 
         elif data == "back_dashboard":
             pending_actions.pop(user_id, None)
             show_dashboard(call.message, edit=True)
+            bot.answer_callback_query(call.id, "Balik ke dashboard.")
+
+        elif data == "txn_back_menu":
+            pending_actions.pop(user_id, None)
+            show_finance_menu(call.message)
+            bot.answer_callback_query(call.id, "Balik ke menu keuangan.")
 
         elif data == "txn_add_income":
             pending_actions[user_id] = {"kind": "income"}
@@ -226,7 +238,7 @@ def handle_callback(call):
                 user_id=user_id,
                 notify_owner=notify_owner,
             )
-            bot.answer_callback_query(call.id)
+            bot.answer_callback_query(call.id, "Menampilkan 5 transaksi terakhir.")
 
         elif data == "txn_delete_last":
             delete_last_transaction(
@@ -236,19 +248,19 @@ def handle_callback(call):
                 user_id=user_id,
                 notify_owner=notify_owner,
             )
-            bot.answer_callback_query(call.id, "Transaksi terakhir dihapus")
+            bot.answer_callback_query(call.id, "Transaksi terakhir dihapus.")
 
         elif data == "graph_1":
             show_graph_report(bot, call.message, supabase, user_id, 1, notify_owner)
-            bot.answer_callback_query(call.id)
+            bot.answer_callback_query(call.id, "Membuat grafik 1 hari.")
 
         elif data == "graph_7":
             show_graph_report(bot, call.message, supabase, user_id, 7, notify_owner)
-            bot.answer_callback_query(call.id)
+            bot.answer_callback_query(call.id, "Membuat grafik 7 hari.")
 
         elif data == "graph_30":
             show_graph_report(bot, call.message, supabase, user_id, 30, notify_owner)
-            bot.answer_callback_query(call.id)
+            bot.answer_callback_query(call.id, "Membuat grafik 1 bulan.")
 
         elif data == "target_menu":
             show_target_menu(
@@ -258,7 +270,18 @@ def handle_callback(call):
                 user_id=user_id,
                 notify_owner=notify_owner,
             )
-            bot.answer_callback_query(call.id)
+            bot.answer_callback_query(call.id, "Masuk ke menu target.")
+
+        elif data == "target_back_menu":
+            pending_actions.pop(user_id, None)
+            show_target_menu(
+                bot=bot,
+                message=call.message,
+                supabase_client=supabase,
+                user_id=user_id,
+                notify_owner=notify_owner,
+            )
+            bot.answer_callback_query(call.id, "Balik ke daftar target.")
 
         elif data.startswith("target_detail:"):
             target_id = data.split(":", 1)[1]
@@ -270,7 +293,7 @@ def handle_callback(call):
                 target_id=target_id,
                 notify_owner=notify_owner,
             )
-            bot.answer_callback_query(call.id)
+            bot.answer_callback_query(call.id, "Membuka detail target.")
 
         elif data == "target_add":
             pending_actions[user_id] = {"kind": "add_target"}
@@ -285,7 +308,7 @@ def handle_callback(call):
                 user_id=user_id,
                 notify_owner=notify_owner,
             )
-            bot.answer_callback_query(call.id, "Target terakhir dihapus")
+            bot.answer_callback_query(call.id, "Target terakhir dihapus.")
 
         elif data == "target_reset_ai":
             reset_ai_memories(
@@ -295,7 +318,7 @@ def handle_callback(call):
                 user_id=user_id,
                 notify_owner=notify_owner,
             )
-            bot.answer_callback_query(call.id, "Memori AI direset")
+            bot.answer_callback_query(call.id, "Memori AI direset.")
 
         else:
             bot.answer_callback_query(call.id, "Tombol tidak dikenali.")
