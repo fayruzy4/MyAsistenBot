@@ -50,7 +50,7 @@ def progress_bar(current, total, length=10):
 def _prompt_keyboard():
     kb = InlineKeyboardMarkup()
     kb.row(
-        InlineKeyboardButton("⬅️ Kembali ke Daftar Target", callback_data="target_back_menu"),
+        InlineKeyboardButton("❌ Batal", callback_data="target_back_menu"),
         InlineKeyboardButton("🏠 Menu Keuangan", callback_data="finance_menu"),
     )
     kb.row(InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"))
