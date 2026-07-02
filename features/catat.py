@@ -150,7 +150,8 @@ def process_transaction_input(bot, message, supabase_client, action):
             reply_markup=get_navigation_keyboard(tipe_transaksi=tipe)
         )
         return True
-        except Exception as exc:
+
+    except Exception as exc:
         print(f"Error di process_transaction_input: {exc}")
         bot.send_message(
             message.chat.id, 
@@ -310,4 +311,4 @@ def show_graph_report(bot, message, supabase_client, user_id, days):
 
     except Exception as exc:
         print(f"Error di show_graph_report: {exc}")
-        bot.send_message(message.chat.id
+        bot.send_message(message.chat.id, "😔 Gagal memproses laporan grafik keuangan.")
