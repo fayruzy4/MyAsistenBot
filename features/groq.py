@@ -1,6 +1,5 @@
 import os
 import tempfile
-from html import escape
 
 from groq import Groq
 
@@ -11,8 +10,10 @@ SYSTEM_PROMPT = os.getenv(
     "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
 )
 
+
 def _clean_text(value: str) -> str:
     return (value or "").strip()
+
 
 class GroqAI:
     def __init__(self, supabase_client, bot):
@@ -96,8 +97,6 @@ class GroqAI:
         history = self._fetch_history(user_id, limit=history_limit)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + [{"role": "user", "content": prompt}]
 
-        self._save_message(user_id, "user", prompt)
-
         chat_completion = self.client.chat.completions.create(
             model=GROQ_MODEL,
             messages=messages,
@@ -107,6 +106,8 @@ class GroqAI:
 
         answer = chat_completion.choices[0].message.content or ""
         answer = _clean_text(answer) or "Maaf, saya belum mendapat jawaban yang jelas."
+
+        self._save_message(user_id, "user", prompt)
         self._save_message(user_id, "assistant", answer)
         return answer
 
@@ -115,19 +116,5 @@ class GroqAI:
         if not transcript:
             return "", "Maaf, suara belum terbaca dengan jelas."
 
-        history = self._fetch_history(user_id, limit=history_limit)
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + [{"role": "user", "content": transcript}]
-
-        self._save_message(user_id, "user", transcript)
-
-        chat_completion = self.client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=messages,
-            temperature=0.5,
-            max_completion_tokens=1024,
-        )
-
-        answer = chat_completion.choices[0].message.content or ""
-        answer = _clean_text(answer) or "Maaf, saya belum mendapat jawaban yang jelas."
-        self._save_message(user_id, "assistant", answer)
+        answer = self.ask_text(user_id, transcript, history_limit=history_limit)
         return transcript, answer
