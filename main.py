@@ -141,6 +141,7 @@ def run_flask():
 
 @bot.message_handler(commands=["start"])
 def handle_start(message):
+    print(">>> HANDLE START DIPANGGIL <<<")
     try:
         pending_actions.pop(message.from_user.id, None)
         show_dashboard(message, edit=False)
