@@ -40,6 +40,12 @@ from features.habit import (
     process_edit_habit_difficulty,
     show_habit_achievements,
 )
+from features.hutang import (
+    process_hutang_bayarke,
+    process_hutang_callback,
+    process_hutang_pinjol,
+    show_hutang_menu,
+)
 from features.gemini import GeminiAI
 from features.groq import GroqAI
 
@@ -79,6 +85,16 @@ except Exception as exc:
 def report_error_to_console(where: str, exc: Exception):
     print(f"🚨 BUG TERDETEKSI di [{where}]: {exc}")
     print(traceback.format_exc())
+
+
+def safe_answer_callback_query(call):
+    try:
+        bot.answer_callback_query(call.id)
+    except telebot.apihelper.ApiTelegramException as e:
+        msg = str(e).lower()
+        if "query is too old" in msg or "query id is invalid" in msg:
+            return
+        raise
 
 
 def safe_edit_or_send(message, text, reply_markup=None):
@@ -135,10 +151,13 @@ def dashboard_keyboard():
     kb = InlineKeyboardMarkup()
     kb.row(
         InlineKeyboardButton("💼 Menu Keuangan", callback_data="finance_menu"),
-        InlineKeyboardButton("🎯 Habit Tracker", callback_data="habit_dashboard"),
+        InlineKeyboardButton("📊 Menu Hutang", callback_data="hutang_menu"),
     )
     kb.row(
+        InlineKeyboardButton("🎯 Habit Tracker", callback_data="habit_dashboard"),
         InlineKeyboardButton("🤖 Gemini AI", callback_data="ai_gemini"),
+    )
+    kb.row(
         InlineKeyboardButton("🎙 Groq AI", callback_data="ai_groq"),
     )
     return kb
@@ -176,7 +195,7 @@ def show_dashboard(message, edit=False):
     text = (
         "✨ <b>Halo! Selamat datang di Asisten Pribadimu</b> ✨\n\n"
         "Di sini kamu bisa mengatur <b>Keuangan</b>, memantau <b>Habit</b>, "
-        "dan memakai <b>AI</b> untuk ngobrol atau transkripsi voice.\n\n"
+        "mengelola <b>Hutang</b>, dan memakai <b>AI</b> untuk ngobrol atau transkripsi voice.\n\n"
         "Pilih menu di bawah ini."
     )
     if edit:
@@ -234,6 +253,16 @@ def handle_ai_menu(message):
         bot.send_message(message.chat.id, "Gagal membuka menu AI.")
 
 
+@bot.message_handler(commands=["hutang"])
+def handle_hutang_menu(message):
+    try:
+        clear_user_state(message.from_user.id)
+        show_hutang_menu(bot, message)
+    except Exception as exc:
+        report_error_to_console("handle_hutang_menu", exc)
+        bot.send_message(message.chat.id, "Gagal membuka menu hutang.")
+
+
 @bot.message_handler(commands=["gemini"])
 def handle_gemini_mode(message):
     try:
@@ -280,6 +309,26 @@ def handle_reset(message):
         bot.send_message(message.chat.id, "Gagal mereset memori AI.")
 
 
+@bot.message_handler(commands=["bayarke"])
+def handle_bayarke(message):
+    try:
+        if not process_hutang_bayarke(bot, message, supabase, pending_actions):
+            return
+    except Exception as exc:
+        report_error_to_console("handle_bayarke", exc)
+        bot.send_message(message.chat.id, "Gagal menyimpan catatan hutang perorangan.")
+
+
+@bot.message_handler(commands=["pinjol"])
+def handle_pinjol(message):
+    try:
+        if not process_hutang_pinjol(bot, message, supabase, pending_actions):
+            return
+    except Exception as exc:
+        report_error_to_console("handle_pinjol", exc)
+        bot.send_message(message.chat.id, "Gagal menyimpan pinjaman lembaga.")
+
+
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
     try:
@@ -287,14 +336,10 @@ def handle_text(message):
             return
 
         text = message.text.strip()
-        if text.startswith("/"):
-            return
-
         user_id = message.from_user.id
         action = pending_actions.get(user_id, {})
         kind = action.get("kind")
 
-        # Chat biasa tidak masuk AI kalau tidak sedang di mode AI.
         if kind == "ai_gemini":
             if gemini_ai is None:
                 bot.send_message(message.chat.id, "Layanan Gemini belum aktif.")
@@ -309,6 +354,25 @@ def handle_text(message):
                 return
             answer = groq_ai.ask_text(user_id, text, history_limit=16)
             bot.send_message(message.chat.id, escape(answer), reply_markup=ai_mode_keyboard())
+            return
+
+        if kind == "hutang_perorangan_input":
+            bot.send_message(
+                message.chat.id,
+                "Gunakan format:\n<code>/bayarke [Nama_Pihak] [Nominal] [Keterangan]</code>",
+                reply_markup=telebot.types.ForceReply(selective=True),
+            )
+            return
+
+        if kind == "hutang_lembaga_input":
+            bot.send_message(
+                message.chat.id,
+                "Gunakan format:\n<code>/pinjol [Nama_Lembaga] [Nominal_Pokok] [Bunga_%_Per_Bulan] [Tenor_Bulan] [Keterangan]</code>",
+                reply_markup=telebot.types.ForceReply(selective=True),
+            )
+            return
+
+        if text.startswith("/"):
             return
 
         success = False
@@ -348,7 +412,7 @@ def handle_voice(message):
         transcript, answer = groq_ai.ask_voice(user_id, message.voice.file_id, history_limit=16)
 
         if transcript:
-            bot.send_message(message.chat.id, f"📝 <b>Transkrip:</b> {escape(transcript)}")
+            bot.send_message(message.chat.id, f"📝 <b>Transkrip:</b>\n{escape(transcript)}")
         bot.send_message(message.chat.id, escape(answer), reply_markup=ai_mode_keyboard())
 
     except Exception as exc:
@@ -362,8 +426,10 @@ def handle_callback(call):
     data = call.data or ""
 
     try:
-        if not data.startswith("habit_toggle"):
-            bot.answer_callback_query(call.id)
+        safe_answer_callback_query(call)
+
+        if process_hutang_callback(bot, call, supabase, pending_actions, show_dashboard):
+            return
 
         if data in ["finance_menu", "back_dashboard", "cancel_input", "habit_dashboard", "exit_mode"]:
             clear_user_state(user_id)
