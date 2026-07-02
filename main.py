@@ -120,7 +120,7 @@ def show_finance_menu(message):
     text = (
         "<b>Menu Keuangan</b>\n\n"
         "Pilih langkah berikutnya.\n"
-        "Santai saja, setiap halaman punya tombol kembali."
+        "Santai saja, semua halaman punya tombol balik."
     )
     safe_edit_or_send(message, text, finance_keyboard())
 
@@ -141,7 +141,6 @@ def run_flask():
 
 @bot.message_handler(commands=["start"])
 def handle_start(message):
-    print(">>> HANDLE START DIPANGGIL <<<")
     try:
         pending_actions.pop(message.from_user.id, None)
         show_dashboard(message, edit=False)
@@ -208,6 +207,7 @@ def handle_callback(call):
         user_id = call.from_user.id
 
         if data == "finance_menu":
+            pending_actions.pop(user_id, None)
             show_finance_menu(call.message)
             bot.answer_callback_query(call.id, "Masuk ke menu keuangan.")
 
@@ -264,6 +264,7 @@ def handle_callback(call):
             bot.answer_callback_query(call.id, "Membuat grafik 1 bulan.")
 
         elif data == "target_menu":
+            pending_actions.pop(user_id, None)
             show_target_menu(
                 bot=bot,
                 message=call.message,
