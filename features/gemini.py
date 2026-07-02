@@ -10,7 +10,7 @@ from google.genai import types
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 SYSTEM_PROMPT = os.getenv(
     "GEMINI_SYSTEM_PROMPT",
-    "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
+    "Kamu adalah Nexus-1 Seri 3gH54, jawab dalam Bahasa Indonesia plus ramah dan jelas."
 )
 
 # Batas aman supaya chat tidak terlalu lambat.
