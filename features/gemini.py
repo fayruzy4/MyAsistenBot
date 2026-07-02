@@ -1,7 +1,8 @@
 import os
 import threading
 import time
-from typing import List, Dict, Any
+import traceback
+from typing import Any, Dict, List
 
 from google import genai
 from google.genai import types
@@ -12,8 +13,10 @@ SYSTEM_PROMPT = os.getenv(
     "Kamu adalah asisten yang ringkas, jelas, akurat, dan menjawab dalam Bahasa Indonesia."
 )
 
+
 def _clean_text(value: str) -> str:
     return (value or "").strip()
+
 
 def _looks_like_rate_limit(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
@@ -25,6 +28,7 @@ def _looks_like_rate_limit(exc: Exception) -> bool:
         or "rate limit" in text
         or "quota" in text
     )
+
 
 class GeminiAI:
     def __init__(self, supabase_client):
@@ -68,10 +72,11 @@ class GeminiAI:
         history = []
         for row in rows:
             role = row.get("role", "user")
-            if role not in ("user", "assistant", "model"):
+            # Gemini chat history resmi memakai role `model` untuk balasan asisten.
+            if role == "assistant":
+                role = "model"
+            elif role not in ("user", "model"):
                 role = "user"
-            if role == "model":
-                role = "assistant"
 
             text = _clean_text(row.get("message_text", ""))
             if not text:
@@ -104,8 +109,6 @@ class GeminiAI:
         for _ in range(attempts):
             client = self._build_client()
             try:
-                self._save_message(user_id, "user", prompt)
-
                 chat = client.chats.create(
                     model=GEMINI_MODEL,
                     history=history,
@@ -114,20 +117,24 @@ class GeminiAI:
                         temperature=0.4,
                     ),
                 )
-                response = chat.send_message(prompt)
-                answer = getattr(response, "text", None) or getattr(response, "output_text", None) or str(response)
+                response = chat.send_message(message=prompt)
+                answer = getattr(response, "text", None) or str(response)
                 answer = _clean_text(answer) or "Maaf, saya belum mendapat jawaban yang jelas."
 
+                self._save_message(user_id, "user", prompt)
                 self._save_message(user_id, "assistant", answer)
                 return answer
 
             except Exception as exc:
                 last_error = exc
                 if _looks_like_rate_limit(exc):
-                    # Kalau kena 429 / quota, pindah key lalu retry tanpa bocorin error ke user.
+                    # Jika quota/rate limit kena, pindah key lalu retry tanpa menampilkan error ke user.
                     self._advance_key()
                     time.sleep(0.2)
                     continue
+
+                print(f"[GeminiAI] Error non-rate-limit: {exc}")
+                print(traceback.format_exc())
                 break
 
         if last_error:
