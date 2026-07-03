@@ -215,6 +215,9 @@ def dashboard_keyboard():
     kb.row(
         InlineKeyboardButton("🖥️ Monitor Server", callback_data="server_monitor_menu"),
     )
+    kb.row(
+    InlineKeyboardButton("📥 Downloader", callback_data="downloader_menu"),
+    )
     return kb
  
 
@@ -411,6 +414,9 @@ def handle_text(message):
         user_id = message.from_user.id
         action = pending_actions.get(user_id, {})
         kind = action.get("kind")
+        
+        if process_downloader_message(bot, message, pending_actions):
+           return
 
         if kind == "ai_gemini":
             if gemini_ai is None:
@@ -503,6 +509,9 @@ def handle_callback(call):
 
     try:
         safe_answer_callback_query(call)
+        if process_downloader_callback(bot, call, pending_actions):
+        return
+        
         if process_server_monitor_callback(bot, call, supabase, pending_actions, show_dashboard):
             return
 
