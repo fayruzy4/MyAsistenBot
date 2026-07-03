@@ -62,6 +62,18 @@ TOKEN_BOT = os.getenv("TOKEN_BOT", "").strip()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 PORT = int(os.getenv("PORT", "10000"))
+OWNER_ID = int(os.getenv("OWNER_ID", "0").strip() or "0")
+
+DENIAL_TEXT = """🔒 Akses Ditolak
+
+Maaf, Anda tidak dapat menggunakan bot ini.
+
+Bot ini merupakan sistem asisten pribadi yang hanya diperuntukkan bagi pemilik dan tidak tersedia untuk penggunaan publik.
+
+Apabila Anda menemukan bot ini melalui pencarian Telegram, berarti bot ini memang bersifat privat.
+
+Terima kasih atas pengertiannya."""
+
 
 if not TOKEN_BOT:
     raise RuntimeError("TOKEN_BOT belum dikonfigurasi di environment variables.")
@@ -75,6 +87,31 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = Flask(__name__)
 
 pending_actions = {}
+
+def is_owner(user_id: int) -> bool:
+    return bool(OWNER_ID) and user_id == OWNER_ID
+
+
+def deny_private_access(chat_id: int):
+    bot.send_message(chat_id, DENIAL_TEXT)
+
+
+def require_owner_message(message):
+    if not is_owner(message.from_user.id):
+        deny_private_access(message.chat.id)
+        return False
+    return True
+
+
+def require_owner_callback(call):
+    if not is_owner(call.from_user.id):
+        try:
+            bot.answer_callback_query(call.id)
+        except:
+            pass
+        deny_private_access(call.message.chat.id)
+        return False
+    return True
 
 try:
     gemini_ai = GeminiAI(supabase)
@@ -246,6 +283,8 @@ def run_flask():
 
 @bot.message_handler(commands=["start"])
 def handle_start(message):
+    if not require_owner_message(message):
+        return
     try:
         clear_user_state(message.from_user.id)
         show_dashboard(message, edit=False)
@@ -433,6 +472,8 @@ def handle_voice(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
+    if not require_owner_callback(call):
+        return
     user_id = call.from_user.id
     data = call.data or ""
 
