@@ -54,7 +54,11 @@ from features.server_monitor import (
     show_server_monitor_menu,
     start_server_monitor_watcher,
 )
-
+from features.download import (
+    show_downloader_menu,
+    process_downloader_callback,
+    process_downloader_message,
+)
 
 load_dotenv()
 
