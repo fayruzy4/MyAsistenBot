@@ -167,7 +167,7 @@ def dashboard_keyboard():
     kb.row(
         InlineKeyboardButton("🎙 Groq AI", callback_data="ai_groq"),
     )
-      kb.row(
+    kb.row(
         InlineKeyboardButton("🖥️ Monitor Server", callback_data="server_monitor_menu"),
     )
     return kb
