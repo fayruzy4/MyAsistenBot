@@ -427,7 +427,8 @@ def process_downloader_message(bot, message, pending_actions: dict):
                 f"Platform: {escape(downloader_platform_label(selected_platform))}\n"
                 f"Mode: {escape(downloader_format_label(format_choice))}"
             ),
-        )
+            reply_markup=downloader_platform_keyboard(selected_platform),
+            )
 
         title = ""
         file_path = ""
