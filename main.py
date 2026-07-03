@@ -64,15 +64,19 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 PORT = int(os.getenv("PORT", "10000"))
 OWNER_ID = int(os.getenv("OWNER_CHAT_ID", "0").strip() or "0")
 
-DENIAL_TEXT = """🔒 Akses Ditolak
+DENIAL_TEXT = """🔒🚫⚠️ NEXUS_SECURITY_ALERT
+----------------------------------------
+CRITICAL_ERROR: ACCESS_DENIED (403)
+Protocol Status: RESTRICTED / PRIVATE_ONLY
 
-Maaf, Anda tidak dapat menggunakan bot ini.
+Your Telegram UserID has been detected by the system but it is NOT found on the administrator's whitelist. 
 
-Bot ini merupakan sistem asisten pribadi yang hanya diperuntukkan bagi pemilik dan tidak tersedia untuk penggunaan publik.
+This AI core is fully locked and strictly reserved for the owner's personal use only. Any further unauthorized interaction or brute-force attempts will be automatically logged and blocked by the server firewall.
 
-Apabila Anda menemukan bot ini melalui pencarian Telegram, berarti bot ini memang bersifat privat.
-
-Terima kasih atas pengertiannya."""
+Connection terminated. Goodbye.
+----------------------------------------
+[SYSTEM_IDLE]
+."""
 
 
 if not TOKEN_BOT:
@@ -242,9 +246,7 @@ def ai_menu_keyboard():
 def show_dashboard(message, edit=False):
     text = (
         "✨ <b>Halo! Selamat datang di Asisten Pribadimu</b> ✨\n\n"
-        "Di sini kamu bisa mengatur <b>Keuangan</b>, memantau <b>Habit</b>, "
-        "mengelola <b>Hutang</b>, dan memakai <b>AI</b> untuk ngobrol atau transkripsi voice.\n\n"
-        "Pilih menu di bawah ini."
+        "Pilih Menu dibawah ini."
     )
     if edit:
         safe_edit_or_send(message, text, dashboard_keyboard())
