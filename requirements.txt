@@ -6,3 +6,5 @@ requests==2.32.4
 google-genai==1.29.0
 groq==0.31.0
 matplotlib==3.10.5
+request==2.32.4
+psutil==7.0.0
