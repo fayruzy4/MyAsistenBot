@@ -49,6 +49,13 @@ from features.hutang import (
 from features.gemini import GeminiAI
 from features.groq import GroqAI
 
+from features.server_monitor import (
+    process_server_monitor_callback,
+    show_server_monitor_menu,
+    start_server_monitor_watcher,
+)
+
+
 load_dotenv()
 
 TOKEN_BOT = os.getenv("TOKEN_BOT", "").strip()
@@ -160,7 +167,11 @@ def dashboard_keyboard():
     kb.row(
         InlineKeyboardButton("🎙 Groq AI", callback_data="ai_groq"),
     )
+      kb.row(
+        InlineKeyboardButton("🖥️ Monitor Server", callback_data="server_monitor_menu"),
+    )
     return kb
+ 
 
 
 def finance_keyboard():
@@ -427,6 +438,8 @@ def handle_callback(call):
 
     try:
         safe_answer_callback_query(call)
+         if process_server_monitor_callback(bot, call, supabase, pending_actions, show_dashboard):
+            return
 
         if process_hutang_callback(bot, call, supabase, pending_actions, show_dashboard):
             return
@@ -562,6 +575,8 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     time.sleep(1)
+
+    start_server_monitor_watcher(bot, supabase)
 
     print("🤖 Bot Asisten berhasil diaktifkan dan sedang berjalan...")
     while True:
