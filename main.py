@@ -62,7 +62,7 @@ TOKEN_BOT = os.getenv("TOKEN_BOT", "").strip()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 PORT = int(os.getenv("PORT", "10000"))
-OWNER_ID = int(os.getenv("OWNER_ID", "0").strip() or "0")
+OWNER_ID = int(os.getenv("OWNER_CHAT_ID", "0").strip() or "0")
 
 DENIAL_TEXT = """🔒 Akses Ditolak
 
