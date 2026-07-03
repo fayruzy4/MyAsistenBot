@@ -157,10 +157,10 @@ def downloader_platform_keyboard(platform: str):
         pass
 
     kb.row(
+        InlineKeyboardButton("⬅️ Kembali", callback_data="downloader_menu"),
         InlineKeyboardButton("🚪 Keluar Mode", callback_data="exit_mode"),
     )
     return kb
-
 
 def show_downloader_menu(bot, message, edit=False):
     text = (
