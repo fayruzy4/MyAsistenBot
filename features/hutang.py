@@ -169,6 +169,10 @@ def _mark_lunas(supabase, debt_id: Any, user_id: int) -> None:
     ).eq("id", debt_id).eq("user_id", str(user_id)).execute()
 
 
+def _delete_hutang(supabase, debt_id: Any, user_id: int) -> None:
+    supabase.table("hutang").delete().eq("id", debt_id).eq("user_id", str(user_id)).execute()
+
+
 def build_hutang_nav_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup()
     kb.row(
@@ -204,6 +208,9 @@ def build_hutang_perorangan_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("💸 Lihat Semua Daftar Hutang", callback_data="hutang_perorangan_daftar"),
     )
     kb.row(
+        InlineKeyboardButton("🗑 Hapus Catatan", callback_data="hutang_perorangan_hapus"),
+    )
+    kb.row(
         InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
         InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
     )
@@ -220,6 +227,9 @@ def build_hutang_lembaga_keyboard() -> InlineKeyboardMarkup:
     )
     kb.row(
         InlineKeyboardButton("🧾 Perbarui Status Pembayaran", callback_data="hutang_lembaga_lunas"),
+    )
+    kb.row(
+        InlineKeyboardButton("🗑 Hapus Pinjaman", callback_data="hutang_lembaga_hapus"),
     )
     kb.row(
         InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
@@ -250,6 +260,49 @@ def _build_hutang_lunas_keyboard(rows: List[Dict[str, Any]]) -> InlineKeyboardMa
     else:
         kb.row(InlineKeyboardButton("Tidak ada data aktif", callback_data="hutang_kembali"))
 
+    kb.row(
+        InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
+    )
+    return kb
+
+
+def _build_hutang_delete_keyboard(rows: List[Dict[str, Any]], tipe_utang: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup()
+
+    if rows:
+        for row in rows:
+            label = f"🗑 {_shorten_label(_row_name(row))} • {format_rupiah(_row_remaining(row))}"
+            kb.row(
+                InlineKeyboardButton(
+                    label,
+                    callback_data=f"hutang_{tipe_utang}_hapus_pilih:{row['id']}",
+                )
+            )
+    else:
+        kb.row(InlineKeyboardButton("Tidak ada data aktif", callback_data="hutang_kembali"))
+
+    kb.row(
+        InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
+    )
+    return kb
+
+
+def _build_hutang_delete_confirm_keyboard(tipe_utang: str, debt_id: Any) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton(
+            "✅ Ya, Hapus",
+            callback_data=f"hutang_{tipe_utang}_hapus_ya:{debt_id}",
+        )
+    )
+    kb.row(
+        InlineKeyboardButton(
+            "❌ Batal",
+            callback_data=f"hutang_{tipe_utang}_hapus_batal",
+        )
+    )
     kb.row(
         InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
         InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
@@ -388,6 +441,87 @@ def show_hutang_lembaga_lunas_options(bot, message, supabase, user_id: int) -> N
         "Pilih pinjaman yang sudah lunas agar statusnya diperbarui."
     )
     _safe_render(bot, message, text, _build_hutang_lunas_keyboard(rows))
+
+
+def show_hutang_perorangan_hapus_menu(bot, message, supabase, user_id: int) -> None:
+    rows = _get_rows(supabase, user_id, tipe_utang="perorangan", lunas=False)
+
+    if not rows:
+        text = (
+            "🗑 <b>Hapus Catatan Hutang Perorangan</b>\n\n"
+            "Tidak ada catatan aktif yang dapat dihapus."
+        )
+        _safe_render(bot, message, text, build_hutang_perorangan_keyboard())
+        return
+
+    text = (
+        "🗑 <b>Pilih Catatan yang Akan Dihapus</b>\n\n"
+        "Pilih salah satu catatan hutang perorangan aktif di bawah ini."
+    )
+    _safe_render(bot, message, text, _build_hutang_delete_keyboard(rows, "perorangan"))
+
+
+def show_hutang_lembaga_hapus_menu(bot, message, supabase, user_id: int) -> None:
+    rows = _get_rows(supabase, user_id, tipe_utang="lembaga", lunas=False)
+
+    if not rows:
+        text = (
+            "🗑 <b>Hapus Pinjaman Lembaga</b>\n\n"
+            "Tidak ada pinjaman aktif yang dapat dihapus."
+        )
+        _safe_render(bot, message, text, build_hutang_lembaga_keyboard())
+        return
+
+    text = (
+        "🗑 <b>Pilih Pinjaman yang Akan Dihapus</b>\n\n"
+        "Pilih salah satu pinjaman lembaga aktif di bawah ini."
+    )
+    _safe_render(bot, message, text, _build_hutang_delete_keyboard(rows, "lembaga"))
+
+
+def show_hutang_perorangan_hapus_confirm(bot, message, supabase, user_id: int, debt_id: Any) -> None:
+    rows = _get_rows(supabase, user_id, tipe_utang="perorangan", lunas=False)
+    target = next((row for row in rows if str(row.get("id")) == str(debt_id)), None)
+
+    if target is None:
+        _safe_render(
+            bot,
+            message,
+            "Data hutang perorangan tidak ditemukan atau sudah tidak aktif.",
+            build_hutang_perorangan_keyboard(),
+        )
+        return
+
+    text = (
+        "⚠️ <b>Konfirmasi Hapus Catatan</b>\n\n"
+        f"<b>Nama:</b> {escape(_row_name(target))}\n"
+        f"<b>Nominal:</b> {format_rupiah(_row_remaining(target))}\n"
+        f"<b>Keterangan:</b> {escape(_clean_text(target.get('keterangan')) or '-')}"
+    )
+    _safe_render(bot, message, text, _build_hutang_delete_confirm_keyboard("perorangan", debt_id))
+
+
+def show_hutang_lembaga_hapus_confirm(bot, message, supabase, user_id: int, debt_id: Any) -> None:
+    rows = _get_rows(supabase, user_id, tipe_utang="lembaga", lunas=False)
+    target = next((row for row in rows if str(row.get("id")) == str(debt_id)), None)
+
+    if target is None:
+        _safe_render(
+            bot,
+            message,
+            "Data pinjaman lembaga tidak ditemukan atau sudah tidak aktif.",
+            build_hutang_lembaga_keyboard(),
+        )
+        return
+
+    text = (
+        "⚠️ <b>Konfirmasi Hapus Pinjaman</b>\n\n"
+        f"<b>Lembaga:</b> {escape(_row_name(target))}\n"
+        f"<b>Pokok:</b> {format_rupiah(_parse_money(target.get('nominal_pokok')))}\n"
+        f"<b>Sisa:</b> {format_rupiah(_row_remaining(target))}\n"
+        f"<b>Tenor:</b> {_row_tenor(target)} bulan"
+    )
+    _safe_render(bot, message, text, _build_hutang_delete_confirm_keyboard("lembaga", debt_id))
 
 
 def _build_hutang_grafik_file(supabase, user_id: int) -> Tuple[Optional[str], Dict[str, Any]]:
@@ -678,6 +812,52 @@ def process_hutang_callback(bot, call, supabase, pending_actions: Dict[str, Any]
 
         if data == "hutang_lembaga_lunas":
             show_hutang_lembaga_lunas_options(bot, call.message, supabase, user_id)
+            return True
+
+        if data == "hutang_perorangan_hapus":
+            show_hutang_perorangan_hapus_menu(bot, call.message, supabase, user_id)
+            return True
+
+        if data == "hutang_lembaga_hapus":
+            show_hutang_lembaga_hapus_menu(bot, call.message, supabase, user_id)
+            return True
+
+        if data.startswith("hutang_perorangan_hapus_pilih:"):
+            debt_id = data.split(":", 1)[1]
+            show_hutang_perorangan_hapus_confirm(bot, call.message, supabase, user_id, debt_id)
+            return True
+
+        if data.startswith("hutang_lembaga_hapus_pilih:"):
+            debt_id = data.split(":", 1)[1]
+            show_hutang_lembaga_hapus_confirm(bot, call.message, supabase, user_id, debt_id)
+            return True
+
+        if data.startswith("hutang_perorangan_hapus_ya:"):
+            debt_id = data.split(":", 1)[1]
+            _delete_hutang(supabase, debt_id, user_id)
+            bot.send_message(
+                call.message.chat.id,
+                "✅ Catatan berhasil dihapus.",
+                reply_markup=build_hutang_perorangan_keyboard(),
+            )
+            return True
+
+        if data.startswith("hutang_lembaga_hapus_ya:"):
+            debt_id = data.split(":", 1)[1]
+            _delete_hutang(supabase, debt_id, user_id)
+            bot.send_message(
+                call.message.chat.id,
+                "✅ Pinjaman berhasil dihapus.",
+                reply_markup=build_hutang_lembaga_keyboard(),
+            )
+            return True
+
+        if data == "hutang_perorangan_hapus_batal":
+            show_hutang_perorangan_hapus_menu(bot, call.message, supabase, user_id)
+            return True
+
+        if data == "hutang_lembaga_hapus_batal":
+            show_hutang_lembaga_hapus_menu(bot, call.message, supabase, user_id)
             return True
 
         if data.startswith("hutang_lunas_set:"):
