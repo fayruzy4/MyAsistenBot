@@ -30,7 +30,15 @@ def _shorten_label(value: str, max_len: int = 28) -> str:
 
 def _parse_money(value: Any, default: int = 0) -> int:
     try:
-        cleaned = str(value).strip().lower().replace("rp", "").replace(".", "").replace(",", "").replace(" ", "")
+        cleaned = (
+            str(value)
+            .strip()
+            .lower()
+            .replace("rp", "")
+            .replace(".", "")
+            .replace(",", "")
+            .replace(" ", "")
+        )
         if cleaned == "":
             return default
         return int(cleaned)
@@ -83,7 +91,12 @@ def _ascii_bar(value: int, maximum: int, length: int = 20) -> str:
     return "█" * filled + "░" * (length - filled)
 
 
-def _get_rows(supabase, user_id: int, tipe_utang: Optional[str] = None, lunas: Optional[bool] = None) -> List[Dict[str, Any]]:
+def _get_rows(
+    supabase,
+    user_id: int,
+    tipe_utang: Optional[str] = None,
+    lunas: Optional[bool] = None,
+) -> List[Dict[str, Any]]:
     query = (
         supabase.table("hutang")
         .select("*")
@@ -153,7 +166,16 @@ def _mark_lunas(supabase, debt_id: Any, user_id: int) -> None:
             "lunas": True,
             "sisa_nominal": 0,
         }
-    ).eq("id", debt_id).eq("user_id", user_id).execute()
+    ).eq("id", debt_id).eq("user_id", str(user_id)).execute()
+
+
+def build_hutang_nav_keyboard() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
+    )
+    return kb
 
 
 def build_hutang_main_keyboard() -> InlineKeyboardMarkup:
@@ -183,6 +205,7 @@ def build_hutang_perorangan_keyboard() -> InlineKeyboardMarkup:
     )
     kb.row(
         InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
     )
     return kb
 
@@ -200,6 +223,7 @@ def build_hutang_lembaga_keyboard() -> InlineKeyboardMarkup:
     )
     kb.row(
         InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
     )
     return kb
 
@@ -208,7 +232,10 @@ def build_hutang_grafik_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup()
     kb.row(
         InlineKeyboardButton("🔄 Perbarui Data", callback_data="hutang_grafik_refresh"),
+    )
+    kb.row(
         InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
     )
     return kb
 
@@ -223,7 +250,10 @@ def _build_hutang_lunas_keyboard(rows: List[Dict[str, Any]]) -> InlineKeyboardMa
     else:
         kb.row(InlineKeyboardButton("Tidak ada data aktif", callback_data="hutang_kembali"))
 
-    kb.row(InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"))
+    kb.row(
+        InlineKeyboardButton("🔙 Kembali", callback_data="hutang_kembali"),
+        InlineKeyboardButton("🏠 Dashboard", callback_data="menu_utama_kembali"),
+    )
     return kb
 
 
@@ -245,6 +275,15 @@ def _force_reply_text_pinjol() -> str:
         "<b>Contoh:</b>\n"
         "<code>/pinjol BankX 5000000 2.5 12 Cicilan motor</code>\n\n"
         "Sistem akan menghitung simulasi cicilan bulanan secara otomatis."
+    )
+
+
+def _send_force_reply_with_nav(bot, chat_id: int, prompt_text: str):
+    bot.send_message(chat_id, prompt_text, reply_markup=_force_reply())
+    bot.send_message(
+        chat_id,
+        "Gunakan tombol di bawah ini untuk kembali atau ke dashboard:",
+        reply_markup=build_hutang_nav_keyboard(),
     )
 
 
@@ -470,17 +509,7 @@ def process_hutang_bayarke(bot, message, supabase, pending_actions: Dict[str, An
 
     parts = raw.split(maxsplit=3)
     if len(parts) < 4:
-        bot.send_message(
-            message.chat.id,
-            (
-                "Format belum lengkap.\n\n"
-                "Gunakan:\n"
-                "<code>/bayarke [Nama_Pihak] [Nominal] [Keterangan]</code>\n\n"
-                "Contoh:\n"
-                "<code>/bayarke Andi 150000 Pinjam makan malam</code>"
-            ),
-            reply_markup=_force_reply(),
-        )
+        _send_force_reply_with_nav(bot, message.chat.id, _force_reply_text_bayarke())
         return False
 
     _, nama_pihak, nominal_raw, keterangan = parts
@@ -495,7 +524,7 @@ def process_hutang_bayarke(bot, message, supabase, pending_actions: Dict[str, An
 
     user_id = message.from_user.id
     payload = {
-        "user_id": user_id,
+        "user_id": str(user_id),
         "tipe_utang": "perorangan",
         "nama_pihak": nama_pihak,
         "nama_lembaga": None,
@@ -532,17 +561,7 @@ def process_hutang_pinjol(bot, message, supabase, pending_actions: Dict[str, Any
 
     parts = raw.split(maxsplit=5)
     if len(parts) < 6:
-        bot.send_message(
-            message.chat.id,
-            (
-                "Format belum lengkap.\n\n"
-                "Gunakan:\n"
-                "<code>/pinjol [Nama_Lembaga] [Nominal_Pokok] [Bunga_%_Per_Bulan] [Tenor_Bulan] [Keterangan]</code>\n\n"
-                "Contoh:\n"
-                "<code>/pinjol BankX 5000000 2.5 12 Cicilan motor</code>"
-            ),
-            reply_markup=_force_reply(),
-        )
+        _send_force_reply_with_nav(bot, message.chat.id, _force_reply_text_pinjol())
         return False
 
     _, nama_lembaga, nominal_raw, bunga_raw, tenor_raw, keterangan = parts
@@ -566,7 +585,7 @@ def process_hutang_pinjol(bot, message, supabase, pending_actions: Dict[str, Any
 
     user_id = message.from_user.id
     payload = {
-        "user_id": user_id,
+        "user_id": str(user_id),
         "tipe_utang": "lembaga",
         "nama_pihak": None,
         "nama_lembaga": nama_lembaga,
@@ -641,11 +660,7 @@ def process_hutang_callback(bot, call, supabase, pending_actions: Dict[str, Any]
 
         if data == "hutang_perorangan_tambah":
             pending_actions[user_id] = {"kind": "hutang_perorangan_input"}
-            bot.send_message(
-                call.message.chat.id,
-                _force_reply_text_bayarke(),
-                reply_markup=_force_reply(),
-            )
+            _send_force_reply_with_nav(bot, call.message.chat.id, _force_reply_text_bayarke())
             return True
 
         if data == "hutang_perorangan_daftar":
@@ -654,11 +669,7 @@ def process_hutang_callback(bot, call, supabase, pending_actions: Dict[str, Any]
 
         if data == "hutang_lembaga_tambah":
             pending_actions[user_id] = {"kind": "hutang_lembaga_input"}
-            bot.send_message(
-                call.message.chat.id,
-                _force_reply_text_pinjol(),
-                reply_markup=_force_reply(),
-            )
+            _send_force_reply_with_nav(bot, call.message.chat.id, _force_reply_text_pinjol())
             return True
 
         if data == "hutang_lembaga_jadwal":
@@ -676,14 +687,15 @@ def process_hutang_callback(bot, call, supabase, pending_actions: Dict[str, Any]
             bot.send_message(
                 call.message.chat.id,
                 "✅ Status pembayaran telah diperbarui menjadi lunas.",
+                reply_markup=build_hutang_lembaga_keyboard(),
             )
-            show_hutang_lembaga_menu(bot, call.message)
             return True
 
         if data.startswith("hutang_"):
             bot.send_message(
                 call.message.chat.id,
                 "Menu hutang sedang diproses.",
+                reply_markup=build_hutang_nav_keyboard(),
             )
             return True
 
@@ -692,5 +704,9 @@ def process_hutang_callback(bot, call, supabase, pending_actions: Dict[str, Any]
     except Exception as exc:
         print(f"[hutang.process_hutang_callback] {exc}")
         print(traceback.format_exc())
-        bot.send_message(call.message.chat.id, "Gagal memproses menu hutang.")
+        bot.send_message(
+            call.message.chat.id,
+            "Gagal memproses menu hutang.",
+            reply_markup=build_hutang_nav_keyboard(),
+        )
         return True
