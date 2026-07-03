@@ -295,6 +295,8 @@ def handle_start(message):
 
 @bot.message_handler(commands=["ai"])
 def handle_ai_menu(message):
+    if not require_owner_message(message):
+        return
     try:
         clear_user_state(message.from_user.id)
         show_ai_menu(message, edit=False)
@@ -305,6 +307,8 @@ def handle_ai_menu(message):
 
 @bot.message_handler(commands=["hutang"])
 def handle_hutang_menu(message):
+    if not require_owner_message(message):
+        return
     try:
         clear_user_state(message.from_user.id)
         show_hutang_menu(bot, message)
@@ -315,6 +319,8 @@ def handle_hutang_menu(message):
 
 @bot.message_handler(commands=["gemini"])
 def handle_gemini_mode(message):
+    if not require_owner_message(message):
+        return
     try:
         if gemini_ai is None:
             bot.send_message(message.chat.id, "Layanan Gemini belum aktif.")
@@ -332,6 +338,8 @@ def handle_gemini_mode(message):
 
 @bot.message_handler(commands=["groq"])
 def handle_groq_mode(message):
+    if not require_owner_message(message):
+        return
     try:
         if groq_ai is None:
             bot.send_message(message.chat.id, "Layanan Groq belum aktif.")
@@ -349,6 +357,8 @@ def handle_groq_mode(message):
 
 @bot.message_handler(commands=["reset"])
 def handle_reset(message):
+    if not require_owner_message(message):
+        return
     try:
         user_id = message.from_user.id
         reset_ai_memory(user_id)
@@ -361,6 +371,8 @@ def handle_reset(message):
 
 @bot.message_handler(commands=["bayarke"])
 def handle_bayarke(message):
+    if not require_owner_message(message):
+        return
     try:
         if not process_hutang_bayarke(bot, message, supabase, pending_actions):
             return
@@ -371,6 +383,8 @@ def handle_bayarke(message):
 
 @bot.message_handler(commands=["pinjol"])
 def handle_pinjol(message):
+    if not require_owner_message(message):
+        return
     try:
         if not process_hutang_pinjol(bot, message, supabase, pending_actions):
             return
@@ -381,6 +395,8 @@ def handle_pinjol(message):
 
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
+    if not require_owner_message(message):
+        return
     try:
         if not message.text:
             return
@@ -446,6 +462,8 @@ def handle_text(message):
 
 @bot.message_handler(content_types=["voice"])
 def handle_voice(message):
+    if not require_owner_message(message):
+        return
     try:
         user_id = message.from_user.id
         action = pending_actions.get(user_id, {})
