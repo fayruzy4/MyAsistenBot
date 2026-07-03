@@ -510,7 +510,7 @@ def handle_callback(call):
     try:
         safe_answer_callback_query(call)
         if process_downloader_callback(bot, call, pending_actions):
-        return
+            return
         
         if process_server_monitor_callback(bot, call, supabase, pending_actions, show_dashboard):
             return
