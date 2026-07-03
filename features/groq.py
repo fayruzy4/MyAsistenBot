@@ -8,7 +8,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 SYSTEM_PROMPT = os.getenv(
     "GROQ_SYSTEM_PROMPT",
-    "Kamu adalah Nexus-2 Dengan seri BG45hY, jawab harus asik ramah jelas dan banyak emot juga, dalam Bahasa Indonesia."
+    "Kamu adalah Nexus-2, jawab harus minimalis tapi jelas dan ramah, dalam Bahasa Indonesia."
 )
 
 
