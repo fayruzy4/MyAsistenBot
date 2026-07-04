@@ -538,7 +538,7 @@ def process_downloader_message(bot, message, pending_actions: dict):
                 parse_mode="HTML",
                 reply_markup=downloader_platform_keyboard(selected_platform),
                 )
-            )
+            
             return True
 
         finally:
