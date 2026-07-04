@@ -59,6 +59,12 @@ from features.download import (
     process_downloader_callback,
     process_downloader_message,
 )
+from features.brankas_berkas import (
+    process_brankas_callback,
+    process_brankas_text,
+    process_brankas_document,
+    process_brankas_photo,
+)
 
 load_dotenv()
 
@@ -217,6 +223,9 @@ def dashboard_keyboard():
     )
     kb.row(
     InlineKeyboardButton("📥 Downloader", callback_data="downloader_menu"),
+    )
+     kb.row(
+        InlineKeyboardButton("📂 Brankas Berkas", callback_data="brankas_menu"),
     )
     return kb
  
@@ -417,6 +426,8 @@ def handle_text(message):
         
         if process_downloader_message(bot, message, pending_actions):
            return
+        if process_brankas_text(bot, message, supabase, pending_actions):
+           return
 
         if kind == "ai_gemini":
             if gemini_ai is None:
@@ -470,6 +481,30 @@ def handle_text(message):
     except Exception as exc:
         report_error_to_console("handle_text", exc)
         bot.send_message(message.chat.id, "Ada gangguan saat memproses pesan Anda.")
+# 5) tambahkan handler dokumen dan foto di bawah handle_text(), sebelum handle_voice()
+
+@bot.message_handler(content_types=["document"])
+def handle_document(message):
+    if not require_owner_message(message):
+        return
+    try:
+        if process_brankas_document(bot, message, supabase, pending_actions):
+            return
+    except Exception as exc:
+        report_error_to_console("handle_document", exc)
+        bot.send_message(message.chat.id, "Gagal menyimpan dokumen ke Brankas Berkas.")
+
+
+@bot.message_handler(content_types=["photo"])
+def handle_photo(message):
+    if not require_owner_message(message):
+        return
+    try:
+        if process_brankas_photo(bot, message, supabase, pending_actions):
+            return
+    except Exception as exc:
+        report_error_to_console("handle_photo", exc)
+        bot.send_message(message.chat.id, "Gagal menyimpan foto ke Brankas Berkas.")
 
 
 @bot.message_handler(content_types=["voice"])
@@ -510,6 +545,8 @@ def handle_callback(call):
     try:
         safe_answer_callback_query(call)
         if process_downloader_callback(bot, call, pending_actions):
+            return
+        if process_brankas_callback(bot, call, supabase, pending_actions, show_dashboard):
             return
         
         if process_server_monitor_callback(bot, call, supabase, pending_actions, show_dashboard):
