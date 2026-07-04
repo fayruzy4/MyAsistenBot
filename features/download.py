@@ -385,7 +385,7 @@ def send_downloaded_file(bot, chat_id, file_path, title, platform, format_choice
         f"<b>Judul:</b> {escape(title)}"
         )
 
-        keyboard = downloader_platform_keyboard(platform)
+    keyboard = downloader_platform_keyboard(platform)
        
     with open(file_path, "rb") as f:
 
