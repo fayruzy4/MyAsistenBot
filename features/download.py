@@ -13,6 +13,10 @@ except Exception:
 DOWNLOADS_DIR = "downloads"
 SUPPORTED_PLATFORMS = ("tiktok", "youtube", "instagram", "facebook", "universal")
 SUPPORTED_FORMATS = ("video", "audio", "photo", "auto")
+COOKIES_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "cookies.txt"
+)
 
 
 def report_local_error(where: str, exc: Exception):
@@ -273,7 +277,9 @@ def build_ytdlp_options(download_tag: str, platform: str, format_choice: str):
         "merge_output_format": "mp4",
         "ffmpeg_location": "/usr/bin/ffmpeg",
     }
-
+    if platform == "instagram" and os.path.exists(COOKIES_FILE):
+        options["cookiefile"] = COOKIES_FILE
+    
     if format_choice == "audio":
         options["format"] = "bestaudio/best"
         options["postprocessors"] = [
