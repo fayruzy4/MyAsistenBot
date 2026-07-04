@@ -486,7 +486,7 @@ def process_downloader_message(bot, message, pending_actions: dict):
             reply_markup=downloader_platform_keyboard(selected_platform),
             )
 
-                title = ""
+        title = ""
         file_path = ""
         download_tag = ""
 
@@ -525,6 +525,12 @@ def process_downloader_message(bot, message, pending_actions: dict):
             )
             return True
 
+                    return True
+
         finally:
             if download_tag:
                 cleanup_download_artifacts(download_tag)
+
+        except Exception as exc:
+            report_local_error("process_downloader_message_outer", exc)
+                return False
