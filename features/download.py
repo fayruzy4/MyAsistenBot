@@ -271,6 +271,7 @@ def build_ytdlp_options(download_tag: str, platform: str, format_choice: str):
         "restrictfilenames": True,
         "windowsfilenames": True,
         "merge_output_format": "mp4",
+        "ffmpeg_location": "/usr/bin/ffmpeg",
     }
 
     if format_choice == "audio":
