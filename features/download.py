@@ -395,6 +395,8 @@ keyboard = downloader_platform_keyboard(platform)
                     chat_id,
                     f,
                     caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
                     supports_streaming=True,
                 )
                 return
@@ -404,6 +406,8 @@ keyboard = downloader_platform_keyboard(platform)
                     chat_id,
                     f,
                     caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
                 )
                 return
 
@@ -412,13 +416,16 @@ keyboard = downloader_platform_keyboard(platform)
                     chat_id,
                     f,
                     caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
                 )
                 return
 
             bot.send_document(
                 chat_id,
                 f,
-                caption=caption,
+                caption=caption,reply_markup=keyboard,
+                parse_mode="HTML",
             )
 
         except Exception as e:
