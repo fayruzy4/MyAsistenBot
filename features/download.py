@@ -496,25 +496,26 @@ def process_downloader_message(bot, message, pending_actions: dict):
             clear_downloader_state(pending_actions, user_id)
             return True
         except Exception as exc:
-    import traceback
+            import traceback
 
-    traceback.print_exc()
-    report_local_error("process_downloader_message", exc)
+            traceback.print_exc()
+            report_local_error("process_downloader_message", exc)
 
-    bot.send_message(
-        message.chat.id,
-        (
+            bot.send_message(
+            message.chat.id,
+            (
             "❌ <b>Download gagal</b>\n\n"
             f"<code>{escape(str(exc))}</code>"
-        ),
-        parse_mode="HTML",
-    )
+            ),
+            parse_mode="HTML",
+            )
 
-    return True
+            return True
         finally:
             if download_tag:
                 cleanup_download_artifacts(download_tag)
 
-    except Exception as exc:
-        report_local_error("process_downloader_message_outer", exc)
-        return False
+        except Exception as exc:
+             report_local_error("process_downloader_message_outer", exc)
+             return False
+        
