@@ -378,14 +378,14 @@ def download_with_ytdlp(url: str, platform: str, format_choice: str):
 def send_downloaded_file(bot, chat_id, file_path, title, platform, format_choice):
     ext = os.path.splitext(file_path)[1].lower()
 
-caption = (
-    "✅ <b>Unduhan selesai</b>\n\n"
-    f"<b>Platform:</b> {escape(platform_label)}\n"
-    f"<b>Format:</b> {escape(format_label)}\n"
-    f"<b>Judul:</b> {escape(title)}"
-)
+    caption = (
+        "✅ <b>Unduhan selesai</b>\n\n"
+        f"<b>Platform:</b> {escape(platform_label)}\n"
+        f"<b>Format:</b> {escape(format_label)}\n"
+        f"<b>Judul:</b> {escape(title)}"
+        )
 
-keyboard = downloader_platform_keyboard(platform)
+        keyboard = downloader_platform_keyboard(platform)
        
     with open(file_path, "rb") as f:
 
