@@ -496,12 +496,21 @@ def process_downloader_message(bot, message, pending_actions: dict):
             clear_downloader_state(pending_actions, user_id)
             return True
         except Exception as exc:
-            report_local_error("process_downloader_message", exc)
-            bot.send_message(
-                message.chat.id,
-                "Gagal mengunduh media. Pastikan URL valid, platform didukung, dan yt-dlp di server berjalan normal.",
-            )
-            return True
+    import traceback
+
+    traceback.print_exc()
+    report_local_error("process_downloader_message", exc)
+
+    bot.send_message(
+        message.chat.id,
+        (
+            "❌ <b>Download gagal</b>\n\n"
+            f"<code>{escape(str(exc))}</code>"
+        ),
+        parse_mode="HTML",
+    )
+
+    return True
         finally:
             if download_tag:
                 cleanup_download_artifacts(download_tag)
