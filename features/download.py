@@ -429,7 +429,6 @@ def send_downloaded_file(bot, chat_id, file_path, title, platform, format_choice
                 f,
                 caption=caption,
             )
-
 def process_downloader_message(bot, message, pending_actions: dict):
     try:
         if not message.text:
@@ -464,7 +463,9 @@ def process_downloader_message(bot, message, pending_actions: dict):
             )
             return True
 
-        selected_platform = detected_platform if platform == "universal" else platform
+        selected_platform = (
+            detected_platform if platform == "universal" else platform
+        )
 
         if selected_platform not in SUPPORTED_PLATFORMS:
             bot.send_message(
@@ -484,7 +485,8 @@ def process_downloader_message(bot, message, pending_actions: dict):
                 f"Mode: {escape(downloader_format_label(format_choice))}"
             ),
             reply_markup=downloader_platform_keyboard(selected_platform),
-            )
+            parse_mode="HTML",
+        )
 
         title = ""
         file_path = ""
@@ -525,12 +527,10 @@ def process_downloader_message(bot, message, pending_actions: dict):
             )
             return True
 
-                    return True
-
         finally:
             if download_tag:
                 cleanup_download_artifacts(download_tag)
 
-        except Exception as exc:
-            report_local_error("process_downloader_message_outer", exc)
-                return False
+    except Exception as exc:
+        report_local_error("process_downloader_message_outer", exc)
+        return False
