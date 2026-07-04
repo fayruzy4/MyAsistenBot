@@ -378,6 +378,8 @@ def download_with_ytdlp(url: str, platform: str, format_choice: str):
     return title, file_path, download_tag
 def send_downloaded_file(bot, chat_id, file_path, title, platform, format_choice):
     ext = os.path.splitext(file_path)[1].lower()
+    platform_label = downloader_platform_label(platform)
+    format_label = downloader_format_label(format_choice)
 
     caption = (
         "✅ <b>Unduhan selesai</b>\n\n"
