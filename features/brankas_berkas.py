@@ -1,7 +1,7 @@
 import os
 import traceback
 from html import escape
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from google import genai
 from google.genai import types
@@ -9,11 +9,11 @@ from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 BRANKAS_TABLE = "brankas_berkas"
 BRANKAS_CHANNEL_ID_RAW = os.getenv("BRANKAS_CHANNEL_ID", "").strip()
-GEMINI_EMBEDDING_KEY = os.getenv("GEMINI_EMBEDDING_KEY", "").strip()
 
 BRANKAS_EMBEDDING_DIM = int(os.getenv("BRANKAS_EMBEDDING_DIM", "768"))
 BRANKAS_MATCH_THRESHOLD = float(os.getenv("BRANKAS_MATCH_THRESHOLD", "0.78"))
 BRANKAS_MATCH_COUNT = int(os.getenv("BRANKAS_MATCH_COUNT", "10"))
+
 
 def _normalize_channel_id(value: str):
     if not value:
@@ -26,17 +26,33 @@ def _normalize_channel_id(value: str):
     except ValueError:
         return value
 
-BRANKAS_CHANNEL_ID = _normalize_channel_id(BRANKAS_CHANNEL_ID_RAW)
 
-try:
-    _EMBED_CLIENT = genai.Client(api_key=GEMINI_EMBEDDING_KEY) if GEMINI_EMBEDDING_KEY else None
-except Exception as exc:
-    _EMBED_CLIENT = None
-    print(f"🚨 Brankas embedding client gagal diinisialisasi: {exc}")
+BRANKAS_CHANNEL_ID = _normalize_channel_id(BRANKAS_CHANNEL_ID_RAW)
+_EMBED_CLIENT = None
+
+
+def get_embed_client() -> genai.Client:
+    global _EMBED_CLIENT
+
+    if _EMBED_CLIENT is not None:
+        return _EMBED_CLIENT
+
+    key = (os.getenv("GEMINI_EMBEDDING_KEY", "") or "").strip()
+    if not key:
+        raise RuntimeError("GEMINI_EMBEDDING_KEY belum dikonfigurasi.")
+
+    try:
+        _EMBED_CLIENT = genai.Client(api_key=key)
+    except Exception as exc:
+        raise RuntimeError(f"Gagal inisialisasi Gemini Embedding client: {exc}") from exc
+
+    return _EMBED_CLIENT
+
 
 def report_local_error(where: str, exc: Exception):
     print(f"🚨 Brankas error di [{where}]: {exc}")
     print(traceback.format_exc())
+
 
 def _send_or_edit(bot, message, text: str, reply_markup=None):
     try:
@@ -55,14 +71,17 @@ def _send_or_edit(bot, message, text: str, reply_markup=None):
             parse_mode="HTML",
         )
 
+
 def _short_text(text: str, limit: int = 36) -> str:
     text = (text or "").strip()
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
 
+
 def _vector_literal(values: List[float]) -> str:
     return "[" + ",".join(f"{float(v):.8f}" for v in values) + "]"
+
 
 def _guess_mime_from_filename(filename: str) -> Optional[str]:
     ext = os.path.splitext((filename or "").lower())[1]
@@ -76,15 +95,16 @@ def _guess_mime_from_filename(filename: str) -> Optional[str]:
         return "image/webp"
     return None
 
+
 def _download_telegram_file_bytes(bot, file_id: str) -> bytes:
     file_info = bot.get_file(file_id)
     return bot.download_file(file_info.file_path)
 
-def _embed_query_text(query: str) -> List[float]:
-    if _EMBED_CLIENT is None:
-        raise RuntimeError("GEMINI_EMBEDDING_KEY belum dikonfigurasi.")
 
-    response = _EMBED_CLIENT.models.embed_content(
+def _embed_query_text(query: str) -> List[float]:
+    client = get_embed_client()
+
+    response = client.models.embed_content(
         model="gemini-embedding-2",
         contents=f"task: search result | query: {query}",
         config=types.EmbedContentConfig(output_dimensionality=BRANKAS_EMBEDDING_DIM),
@@ -92,9 +112,14 @@ def _embed_query_text(query: str) -> List[float]:
     [embedding_obj] = response.embeddings
     return [float(v) for v in embedding_obj.values]
 
-def _embed_document_text(title: str, text: str, file_bytes: Optional[bytes] = None, mime_type: Optional[str] = None) -> List[float]:
-    if _EMBED_CLIENT is None:
-        raise RuntimeError("GEMINI_EMBEDDING_KEY belum dikonfigurasi.")
+
+def _embed_document_text(
+    title: str,
+    text: str,
+    file_bytes: Optional[bytes] = None,
+    mime_type: Optional[str] = None,
+) -> List[float]:
+    client = get_embed_client()
 
     title = (title or "none").strip() or "none"
     text = (text or title).strip() or "none"
@@ -108,13 +133,14 @@ def _embed_document_text(title: str, text: str, file_bytes: Optional[bytes] = No
     else:
         contents = f"title: {title} | text: {text}"
 
-    response = _EMBED_CLIENT.models.embed_content(
+    response = client.models.embed_content(
         model="gemini-embedding-2",
         contents=contents,
         config=types.EmbedContentConfig(output_dimensionality=BRANKAS_EMBEDDING_DIM),
     )
     [embedding_obj] = response.embeddings
     return [float(v) for v in embedding_obj.values]
+
 
 def _store_row_with_embedding(supabase, row: dict, embedding_values: Optional[List[float]]):
     payload = {
@@ -127,6 +153,7 @@ def _store_row_with_embedding(supabase, row: dict, embedding_values: Optional[Li
         "p_channel_message_id": row.get("channel_message_id"),
     }
     return supabase.rpc("add_brankas_berkas", payload).execute()
+
 
 def _archive_to_channel(bot, supabase, row: dict):
     if not BRANKAS_CHANNEL_ID:
@@ -170,6 +197,7 @@ def _archive_to_channel(bot, supabase, row: dict):
         report_local_error("publish_to_channel", exc)
         return None
 
+
 def _search_rows(supabase, owner_id: int, query: str, limit: int = BRANKAS_MATCH_COUNT):
     query_embedding = _embed_query_text(query)
     result = supabase.rpc(
@@ -183,6 +211,7 @@ def _search_rows(supabase, owner_id: int, query: str, limit: int = BRANKAS_MATCH
     ).execute()
     return result.data or []
 
+
 def _get_row_by_id(supabase, record_id: int):
     result = (
         supabase.table(BRANKAS_TABLE)
@@ -194,6 +223,7 @@ def _get_row_by_id(supabase, record_id: int):
     rows = result.data or []
     return rows[0] if rows else None
 
+
 def brankas_main_keyboard():
     kb = InlineKeyboardMarkup()
     kb.row(
@@ -202,6 +232,7 @@ def brankas_main_keyboard():
     )
     kb.row(InlineKeyboardButton("🏠 Kembali ke Dashboard", callback_data="back_dashboard"))
     return kb
+
 
 def brankas_save_keyboard():
     kb = InlineKeyboardMarkup()
@@ -215,6 +246,7 @@ def brankas_save_keyboard():
     )
     return kb
 
+
 def brankas_search_keyboard():
     kb = InlineKeyboardMarkup()
     kb.row(
@@ -222,6 +254,7 @@ def brankas_search_keyboard():
         InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
     )
     return kb
+
 
 def brankas_result_keyboard(rows):
     kb = InlineKeyboardMarkup()
@@ -242,6 +275,7 @@ def brankas_result_keyboard(rows):
     )
     return kb
 
+
 def brankas_open_keyboard():
     kb = InlineKeyboardMarkup()
     kb.row(InlineKeyboardButton("🔎 Cari Lagi", callback_data="brankas_search_start"))
@@ -250,6 +284,7 @@ def brankas_open_keyboard():
         InlineKeyboardButton("🏠 Dashboard", callback_data="back_dashboard"),
     )
     return kb
+
 
 def show_brankas_menu(bot, message, edit=False):
     text = (
@@ -261,6 +296,7 @@ def show_brankas_menu(bot, message, edit=False):
     else:
         bot.send_message(message.chat.id, text, reply_markup=brankas_main_keyboard(), parse_mode="HTML")
 
+
 def show_brankas_save_menu(bot, message, edit=False):
     text = (
         "📥 <b>Simpan Berkas Baru</b>\n\n"
@@ -270,6 +306,7 @@ def show_brankas_save_menu(bot, message, edit=False):
         _send_or_edit(bot, message, text, brankas_save_keyboard())
     else:
         bot.send_message(message.chat.id, text, reply_markup=brankas_save_keyboard(), parse_mode="HTML")
+
 
 def show_brankas_search_prompt(bot, message, edit=False):
     text = (
@@ -281,6 +318,7 @@ def show_brankas_search_prompt(bot, message, edit=False):
     else:
         bot.send_message(message.chat.id, text, reply_markup=brankas_search_keyboard(), parse_mode="HTML")
 
+
 def show_brankas_doc_prompt(bot, message):
     bot.send_message(
         message.chat.id,
@@ -290,6 +328,7 @@ def show_brankas_doc_prompt(bot, message):
         parse_mode="HTML",
     )
 
+
 def show_brankas_photo_prompt(bot, message):
     bot.send_message(
         message.chat.id,
@@ -298,6 +337,7 @@ def show_brankas_photo_prompt(bot, message):
         reply_markup=brankas_save_keyboard(),
         parse_mode="HTML",
     )
+
 
 def _send_brankas_file(bot, chat_id: int, row: dict):
     tipe_input = row.get("tipe_input", "")
@@ -326,6 +366,7 @@ def _send_brankas_file(bot, chat_id: int, row: dict):
             parse_mode="HTML",
         )
 
+
 def _prepare_document_embedding(bot, document_file_id: str, file_name: str) -> Optional[List[float]]:
     title = file_name or "none"
     ext = os.path.splitext((file_name or "").lower())[1]
@@ -341,6 +382,7 @@ def _prepare_document_embedding(bot, document_file_id: str, file_name: str) -> O
         report_local_error("document_text_embedding", exc)
         return None
 
+
 def _prepare_photo_embedding(bot, photo_file_id: str, caption: str) -> Optional[List[float]]:
     title = caption or "none"
     try:
@@ -353,6 +395,7 @@ def _prepare_photo_embedding(bot, photo_file_id: str, caption: str) -> Optional[
     except Exception as exc:
         report_local_error("photo_text_embedding", exc)
         return None
+
 
 def process_brankas_callback(bot, call, supabase, pending_actions: dict, show_dashboard):
     data = call.data or ""
@@ -399,6 +442,7 @@ def process_brankas_callback(bot, call, supabase, pending_actions: dict, show_da
         return True
 
     return False
+
 
 def process_brankas_text(bot, message, supabase, pending_actions: dict):
     user_id = message.from_user.id
@@ -452,6 +496,7 @@ def process_brankas_text(bot, message, supabase, pending_actions: dict):
     )
     return True
 
+
 def process_brankas_document(bot, message, supabase, pending_actions: dict):
     user_id = message.from_user.id
     action = pending_actions.get(user_id, {})
@@ -497,6 +542,7 @@ def process_brankas_document(bot, message, supabase, pending_actions: dict):
         parse_mode="HTML",
     )
     return True
+
 
 def process_brankas_photo(bot, message, supabase, pending_actions: dict):
     user_id = message.from_user.id
