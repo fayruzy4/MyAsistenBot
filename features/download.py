@@ -292,25 +292,48 @@ def build_ytdlp_options(download_tag: str, platform: str, format_choice: str):
     return options
 
 
-def find_downloaded_file(download_tag: str, fallback_path: str = "") -> str:
+def find_downloaded_file(download_tag: str, format_choice: str = "video", fallback_path: str = "") -> str:
+    video_exts = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".3gp")
+    audio_exts = (".mp3", ".m4a", ".ogg", ".opus", ".wav", ".flac")
+    image_exts = (".jpg", ".jpeg", ".png", ".webp")
+
     candidates = []
+
     if os.path.isdir(DOWNLOADS_DIR):
         for name in os.listdir(DOWNLOADS_DIR):
             if not name.startswith(download_tag):
                 continue
-            if name.endswith(".part") or name.endswith(".ytdl"):
+            if name.endswith((".part", ".ytdl", ".tmp")):
                 continue
-            candidates.append(os.path.join(DOWNLOADS_DIR, name))
+
+            path = os.path.join(DOWNLOADS_DIR, name)
+
+            if os.path.isfile(path):
+                candidates.append(path)
 
     if candidates:
-        candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+
+        def priority(path):
+            ext = os.path.splitext(path)[1].lower()
+            size = os.path.getsize(path)
+            mtime = os.path.getmtime(path)
+
+            if format_choice == "audio":
+                rank = 0 if ext in audio_exts else 1
+            elif format_choice == "photo":
+                rank = 0 if ext in image_exts else 1
+            else:
+                rank = 0 if ext in video_exts else 1
+
+            return (rank, -size, -mtime)
+
+        candidates.sort(key=priority)
         return candidates[0]
 
     if fallback_path and os.path.exists(fallback_path):
         return fallback_path
 
     return ""
-
 
 def cleanup_download_artifacts(download_tag: str):
     try:
@@ -330,49 +353,82 @@ def cleanup_download_artifacts(download_tag: str):
 
 def download_with_ytdlp(url: str, platform: str, format_choice: str):
     if yt_dlp is None:
-        raise RuntimeError("Library yt-dlp belum terpasang di server.")
+        raise RuntimeError("Library yt-dlp belum terpasang.")
 
     download_tag = f"{platform}_{format_choice}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
     options = build_ytdlp_options(download_tag, platform, format_choice)
 
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)
+
         title = info.get("title") or "download"
-        fallback_path = ""
+
         try:
             fallback_path = ydl.prepare_filename(info)
         except Exception:
             fallback_path = ""
 
-    file_path = find_downloaded_file(download_tag, fallback_path)
+    file_path = find_downloaded_file(download_tag, format_choice, fallback_path)
+
     if not file_path:
-        raise RuntimeError("File hasil unduhan tidak ditemukan setelah proses yt-dlp selesai.")
+        raise RuntimeError("File hasil download tidak ditemukan.")
 
     return title, file_path, download_tag
-
-
-def send_downloaded_file(bot, chat_id: int, file_path: str, title: str, platform: str, format_choice: str):
+def send_downloaded_file(bot, chat_id, file_path, title, platform, format_choice):
     ext = os.path.splitext(file_path)[1].lower()
-    platform_label = downloader_platform_label(platform)
-    format_label = downloader_format_label(format_choice)
 
     caption = (
         "✅ <b>Unduhan selesai</b>\n\n"
-        f"<b>Platform:</b> {escape(platform_label)}\n"
-        f"<b>Format:</b> {escape(format_label)}\n"
+        f"<b>Platform:</b> {escape(downloader_platform_label(platform))}\n"
+        f"<b>Format:</b> {escape(downloader_format_label(format_choice))}\n"
         f"<b>Judul:</b> {escape(title)}"
     )
 
     with open(file_path, "rb") as f:
-        if ext in (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".3gp"):
-            bot.send_video(chat_id, f, caption=caption, supports_streaming=True)
-        elif ext in (".mp3", ".m4a", ".ogg", ".opus", ".wav", ".flac"):
-            bot.send_audio(chat_id, f, caption=caption)
-        elif ext in (".jpg", ".jpeg", ".png", ".webp"):
-            bot.send_photo(chat_id, f, caption=caption)
-        else:
-            bot.send_document(chat_id, f, caption=caption)
 
+        try:
+            if ext in (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".3gp"):
+                bot.send_video(
+                    chat_id,
+                    f,
+                    caption=caption,
+                    supports_streaming=True,
+                )
+                return
+
+            if ext in (".mp3", ".m4a", ".ogg", ".opus", ".wav", ".flac"):
+                bot.send_audio(
+                    chat_id,
+                    f,
+                    caption=caption,
+                )
+                return
+
+            if ext in (".jpg", ".jpeg", ".png", ".webp"):
+                bot.send_photo(
+                    chat_id,
+                    f,
+                    caption=caption,
+                )
+                return
+
+            bot.send_document(
+                chat_id,
+                f,
+                caption=caption,
+            )
+
+        except Exception as e:
+            report_local_error("send_downloaded_file", e)
+
+            f.seek(0)
+
+            bot.send_document(
+                chat_id,
+                f,
+                caption=caption,
+            )
 
 def process_downloader_message(bot, message, pending_actions: dict):
     try:
