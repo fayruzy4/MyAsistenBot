@@ -536,6 +536,8 @@ def process_downloader_message(bot, message, pending_actions: dict):
                     f"<code>{escape(str(exc))}</code>"
                 ),
                 parse_mode="HTML",
+                reply_markup=downloader_platform_keyboard(selected_platform),
+                )
             )
             return True
 
