@@ -9,3 +9,4 @@ matplotlib==3.10.5
 requests==2.32.4
 psutil==7.0.0
 yt-dlp>=2025.7.21
+yfinance>=0.2.65
