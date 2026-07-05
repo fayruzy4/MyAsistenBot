@@ -65,6 +65,13 @@ from features.brankas_berkas import (
     process_brankas_document,
     process_brankas_photo,
 )
+from features.investasi import (
+    show_investasi_menu,
+    process_investasi_callback,
+    process_investasi_text,
+    process_investasi_document,
+    start_investasi_alert_watcher,
+)
 
 load_dotenv()
 
@@ -227,6 +234,9 @@ def dashboard_keyboard():
     kb.row(
         InlineKeyboardButton("📂 Brankas Berkas", callback_data="brankas_menu"),
     )
+    kb.row(
+        InlineKeyboardButton("📈 Investasi", callback_data="investasi_menu")
+    )
     return kb
  
 
@@ -334,6 +344,17 @@ def handle_hutang_menu(message):
         report_error_to_console("handle_hutang_menu", exc)
         bot.send_message(message.chat.id, "Gagal membuka menu hutang.")
 
+@bot.message_handler(commands=["investasi"])
+def handle_investasi_menu(message):
+    if not require_owner_message(message):
+        return
+    try:
+        clear_user_state(message.from_user.id)
+        show_investasi_menu(bot, message, edit=False)
+    except Exception as exc:
+        report_error_to_console("handle_investasi_menu", exc)
+        bot.send_message(message.chat.id, "Gagal membuka menu investasi.")
+
 
 @bot.message_handler(commands=["gemini"])
 def handle_gemini_mode(message):
@@ -423,6 +444,9 @@ def handle_text(message):
         user_id = message.from_user.id
         action = pending_actions.get(user_id, {})
         kind = action.get("kind")
+
+        if process_investasi_text(bot, message, supabase, pending_actions):
+           return
         
         if process_downloader_message(bot, message, pending_actions):
            return
@@ -488,6 +512,8 @@ def handle_document(message):
     if not require_owner_message(message):
         return
     try:
+        if process_investasi_document(bot, message, supabase, pending_actions):
+            return
         if process_brankas_document(bot, message, supabase, pending_actions):
             return
     except Exception as exc:
@@ -544,6 +570,13 @@ def handle_callback(call):
 
     try:
         safe_answer_callback_query(call)
+        if process_investasi_callback(bot, call, supabase, pending_actions, show_dashboard):
+            return
+
+        if data == "investasi_menu":
+            clear_user_state(user_id)
+            show_investasi_menu(bot, call.message, edit=True)
+            return
         if process_downloader_callback(bot, call, pending_actions):
             return
         if process_brankas_callback(bot, call, supabase, pending_actions, show_dashboard):
@@ -688,6 +721,7 @@ if __name__ == "__main__":
     time.sleep(1)
 
     start_server_monitor_watcher(bot, supabase)
+    start_investasi_alert_watcher(bot, supabase, OWNER_ID)
 
     print("🤖 Bot Asisten berhasil diaktifkan dan sedang berjalan...")
     while True:
