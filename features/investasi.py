@@ -1,4 +1,3 @@
-# features/investasi.py
 from __future__ import annotations
 
 import csv
@@ -447,15 +446,15 @@ def _account_id(supabase, user_id, chat_id, username="", first_name=""):
 
 
 def _settings(supabase, account_id):
-    row = (
+    result = (
         supabase.table("investasi_settings")
         .select("*")
         .eq("account_id", account_id)
-        .maybe_single()
         .execute()
     )
-    if row.data:
-        return row.data
+
+    if result.data:
+        return result.data[0]
 
     default = {
         "account_id": account_id,
@@ -463,9 +462,10 @@ def _settings(supabase, account_id):
         "currency": DEFAULT_CURRENCY,
         "notifications_enabled": True,
     }
-    supabase.table("investasi_settings").insert(default).execute()
-    return default
 
+    supabase.table("investasi_settings").insert(default).execute()
+
+    return default
 
 def _set_settings(supabase, account_id, **kwargs):
     kwargs["updated_at"] = _fmt_dt_now()
