@@ -420,29 +420,76 @@ def _chart_text(symbol):
 
 
 def _account_id(supabase, user_id, chat_id, username="", first_name=""):
-    row = (
+    result = (
         supabase.table("investasi_accounts")
         .select("id")
         .eq("telegram_user_id", str(user_id))
-        .maybe_single()
         .execute()
     )
-    if row.data and row.data.get("id"):
+
+    rows = getattr(result, "data", None) or []
+    if rows and rows[0].get("id"):
+        account_id = rows[0]["id"]
         supabase.table("investasi_accounts").update({
             "telegram_chat_id": str(chat_id),
             "username": username or None,
             "first_name": first_name or None,
             "updated_at": _fmt_dt_now(),
-        }).eq("id", row.data["id"]).execute()
-        return row.data["id"]
+        }).eq("id", account_id).execute()
+        return account_id
 
-    inserted = supabase.table("investasi_accounts").insert({
+    supabase.table("investasi_accounts").insert({
         "telegram_user_id": str(user_id),
         "telegram_chat_id": str(chat_id),
         "username": username or None,
         "first_name": first_name or None,
     }).execute()
-    return inserted.data[0]["id"]
+
+    result = (
+        supabase.table("investasi_accounts")
+        .select("id")
+        .eq("telegram_user_id", str(user_id))
+        .execute()
+    )
+    rows = getattr(result, "data", None) or []
+    if not rows or not rows[0].get("id"):
+        raise RuntimeError("Gagal membuat akun investasi di Supabase.")
+
+    return rows[0]["id"]
+
+
+def _settings(supabase, account_id):
+    result = (
+        supabase.table("investasi_settings")
+        .select("*")
+        .eq("account_id", account_id)
+        .execute()
+    )
+
+    rows = getattr(result, "data", None) or []
+    if rows:
+        return rows[0]
+
+    default = {
+        "account_id": account_id,
+        "refresh_interval_sec": DEFAULT_REFRESH_INTERVAL,
+        "currency": DEFAULT_CURRENCY,
+        "notifications_enabled": True,
+    }
+
+    supabase.table("investasi_settings").insert(default).execute()
+
+    result = (
+        supabase.table("investasi_settings")
+        .select("*")
+        .eq("account_id", account_id)
+        .execute()
+    )
+    rows = getattr(result, "data", None) or []
+    if rows:
+        return rows[0]
+
+    return default
 
 
 def _settings(supabase, account_id):
