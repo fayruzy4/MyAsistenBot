@@ -72,6 +72,17 @@ from features.investasi import (
     process_investasi_document,
     start_investasi_alert_watcher,
 )
+from features.kapsul_waktu import (
+    show_kapsul_menu,
+    process_kapsul_callback,
+    process_kapsul_text,
+    process_kapsul_document,
+    process_kapsul_photo,
+    process_kapsul_video,
+    process_kapsul_voice,
+    start_kapsul_scheduler,
+)
+
 
 load_dotenv()
 
@@ -236,6 +247,9 @@ def dashboard_keyboard():
     )
     kb.row(
         InlineKeyboardButton("📈 Investasi", callback_data="investasi_menu")
+    )
+    kb.row(
+        InlineKeyboardButton("📦 Kapsul Waktu", callback_data="kapsul_menu"),
     )
     return kb
  
@@ -430,6 +444,16 @@ def handle_pinjol(message):
     except Exception as exc:
         report_error_to_console("handle_pinjol", exc)
         bot.send_message(message.chat.id, "Gagal menyimpan pinjaman lembaga.")
+@bot.message_handler(commands=["kapsul"])
+def handle_kapsul_menu(message):
+    if not require_owner_message(message):
+        return
+    try:
+        clear_user_state(message.from_user.id)
+        show_kapsul_menu(bot, message, supabase, message.from_user.id, edit=False)
+    except Exception as exc:
+        report_error_to_console("handle_kapsul_menu", exc)
+        bot.send_message(message.chat.id, "Gagal membuka menu Kapsul Waktu.")
 
 
 @bot.message_handler(content_types=["text"])
@@ -444,6 +468,9 @@ def handle_text(message):
         user_id = message.from_user.id
         action = pending_actions.get(user_id, {})
         kind = action.get("kind")
+        if process_kapsul_text(bot, message, supabase, pending_actions):
+            return
+
 
         if process_investasi_text(bot, message, supabase, pending_actions):
            return
@@ -512,6 +539,8 @@ def handle_document(message):
     if not require_owner_message(message):
         return
     try:
+        if process_kapsul_document(bot, message, supabase, pending_actions):
+            return
         if process_investasi_document(bot, message, supabase, pending_actions):
             return
         if process_brankas_document(bot, message, supabase, pending_actions):
@@ -526,11 +555,23 @@ def handle_photo(message):
     if not require_owner_message(message):
         return
     try:
+        if process_kapsul_photo(bot, message, supabase, pending_actions):
+            return
         if process_brankas_photo(bot, message, supabase, pending_actions):
             return
     except Exception as exc:
         report_error_to_console("handle_photo", exc)
         bot.send_message(message.chat.id, "Gagal menyimpan foto ke Brankas Berkas.")
+@bot.message_handler(content_types=["video"])
+def handle_video(message):
+    if not require_owner_message(message):
+        return
+    try:
+        if process_kapsul_video(bot, message, supabase, pending_actions):
+            return
+    except Exception as exc:
+        report_error_to_console("handle_video", exc)
+        bot.send_message(message.chat.id, "Gagal menyimpan video.")
 
 
 @bot.message_handler(content_types=["voice"])
@@ -538,6 +579,8 @@ def handle_voice(message):
     if not require_owner_message(message):
         return
     try:
+        if process_kapsul_voice(bot, message, supabase, pending_actions):
+            return
         user_id = message.from_user.id
         action = pending_actions.get(user_id, {})
         kind = action.get("kind")
@@ -570,6 +613,9 @@ def handle_callback(call):
 
     try:
         safe_answer_callback_query(call)
+        if process_kapsul_callback(bot, call, supabase, pending_actions, show_dashboard):
+            return
+
         if process_investasi_callback(bot, call, supabase, pending_actions, show_dashboard):
             return
 
@@ -722,6 +768,8 @@ if __name__ == "__main__":
 
     start_server_monitor_watcher(bot, supabase)
     start_investasi_alert_watcher(bot, supabase, OWNER_ID)
+    start_kapsul_scheduler(bot, supabase)
+
 
     print("🤖 Bot Asisten berhasil diaktifkan dan sedang berjalan...")
     while True:
