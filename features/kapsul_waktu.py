@@ -1007,7 +1007,7 @@ def process_kapsul_callback(bot, call, supabase, pending_actions, show_dashboard
         if unlock_at and now < unlock_at:
             _show_capsule_detail(bot, call.message, row)
             return True
-     try:
+        try:
             _send_capsule_contents(bot, call.message.chat.id, row)
             opened_iso = now_jkt().astimezone(timezone.utc).isoformat()
             supabase.table("kapsul_capsules").update(
