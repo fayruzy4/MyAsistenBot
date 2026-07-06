@@ -284,57 +284,60 @@ def capsule_detail_text(row):
         text.append(f"Dibuka: <b>{format_id_datetime(opened_at)}</b>")
     return "\n".join(text)
 
-def show_kapsul_menu(bot, message, supabase, user_id, edit=False):
-    ensure_capsule_dirs()
-    try:
-        account = (
-            supabase.table("kapsul_accounts")
-            .select("*")
-            .eq("telegram_user_id", int(user_id))
-            .limit(1)
-            .execute()
-            .data
-        )
-        if account:
-            account_id = account[0]["id"]
-            rows = (
-                supabase.table("kapsul_capsules")
-                .select("*")
-                .eq("account_id", account_id)
-                .execute()
-                .data
-            ) or []
-            total = len([r for r in rows if r.get("status") != "DELETED"])
-            locked = len([r for r in rows if r.get("status") == "LOCKED"])
-            ready = len([r for r in rows if r.get("status") == "READY"])
-            opened = len([r for r in rows if r.get("status") == "OPENED"])
-        else:
-            total = locked = ready = opened = 0
-    except Exception:
-        total = locked = ready = opened = 0
-
-    text = (
-        "📦 <b>KAPSUL WAKTU</b>\n\n"
-        f"Total: <b>{total}</b>\n"
-        f"Locked: <b>{locked}</b>\n"
-        f"Ready: <b>{ready}</b>\n"
-        f"Opened: <b>{opened}</b>\n\n"
-        "Pilih menu di bawah."
+def show_kapsul_inbox(bot, message, supabase, user_id, edit=False):
+    account = (
+        supabase.table("kapsul_accounts")
+        .select("*")
+        .eq("telegram_user_id", int(user_id))
+        .limit(1)
+        .execute()
+        .data
     )
+    if not account:
+        bot.send_message(message.chat.id, "Belum ada kapsul.")
+        return
+
+    account_id = account[0]["id"]
+
+    # FIX:
+    # sebelumnya hanya READY dan OPENED,
+    # jadi kapsul LOCKED tidak kelihatan di kotak kapsul.
+    rows = _fetch_capsules_for_user(
+        supabase,
+        account_id,
+        statuses=["LOCKED", "READY", "OPENED"],
+    )
+    rows = sorted(rows, key=lambda x: parse_db_datetime(x.get("created_at")) or now_jkt(), reverse=True)
+
+    text = "📬 <b>KOTAK KAPSUL</b>\n\n"
+    if not rows:
+        text += "Belum ada kapsul."
+        kb = build_menu_keyboard()
+    else:
+        parts = []
+        for r in rows[:10]:
+            title = escape(r.get("title") or "Tanpa Judul")
+            status = r.get("status", "LOCKED")
+            unlock_at = parse_db_datetime(r.get("unlock_at"))
+            line = f"• {capsule_status_emoji(status)} <b>{title}</b> — <b>{status}</b>"
+            if unlock_at:
+                line += f"\n  <i>{format_id_datetime(unlock_at)}</i>"
+            parts.append(line)
+        text += "\n".join(parts)
+        kb = build_list_keyboard(rows)
 
     if edit:
         try:
             bot.edit_message_text(
-                text=text,
-                chat_id=message.chat.id,
-                message_id=message.message_id,
-                reply_markup=build_menu_keyboard(),
+                text,
+                message.chat.id,
+                message.message_id,
+                reply_markup=kb,
             )
         except Exception:
-            bot.send_message(message.chat.id, text, reply_markup=build_menu_keyboard())
+            bot.send_message(message.chat.id, text, reply_markup=kb)
     else:
-        bot.send_message(message.chat.id, text, reply_markup=build_menu_keyboard())
-
+        bot.send_message(message.chat.id, text, reply_markup=kb)
 def start_create_flow(bot, message, pending_actions, user_id):
     set_state(
         pending_actions,
@@ -978,18 +981,50 @@ def process_kapsul_callback(bot, call, supabase, pending_actions, show_dashboard
         start_create_flow(bot, call.message, pending_actions, user_id)
         return True
 
-    if data.startswith("kapsul_pick:"):
-        mode = data.split(":", 1)[1]
-        state = get_state(pending_actions, user_id)
-        if not state:
-            bot.send_message(call.message.chat.id, "State kapsul tidak ditemukan.")
+   if data.startswith("kapsul_open:"):
+        capsule_id = int(data.split(":", 1)[1])
+        row = _get_capsule_by_id(supabase, capsule_id)
+        if not row:
+            bot.send_message(call.message.chat.id, "Kapsul tidak ditemukan.")
             return True
-        if mode not in ALLOWED_MEDIA:
-            bot.send_message(call.message.chat.id, "Mode media tidak dikenali.")
-            return True
-        set_media_mode(bot, call.message, pending_actions, user_id, mode)
-        return True
 
+        account = _get_account_by_id(supabase, row["account_id"])
+        if not account or int(account["telegram_user_id"]) != int(user_id):
+            bot.send_message(call.message.chat.id, "Kapsul ini bukan milik Anda.")
+            return True
+
+        unlock_at = parse_db_datetime(row.get("unlock_at"))
+        now = now_jkt()
+
+        if row.get("status") == "DELETED":
+            bot.send_message(call.message.chat.id, "Kapsul ini sudah dihapus.")
+            return True
+
+        if row.get("status") == "OPENED":
+            _show_capsule_detail(bot, call.message, row)
+            return True
+
+        if unlock_at and now < unlock_at:
+            _show_capsule_detail(bot, call.message, row)
+            return True
+     try:
+            _send_capsule_contents(bot, call.message.chat.id, row)
+            opened_iso = now_jkt().astimezone(timezone.utc).isoformat()
+            supabase.table("kapsul_capsules").update(
+                {
+                    "status": "OPENED",
+                    "opened_at": opened_iso,
+                }
+            ).eq("id", capsule_id).execute()
+            row["status"] = "OPENED"
+            row["opened_at"] = opened_iso
+            bot.send_message(call.message.chat.id, "✅ Kapsul selesai dibuka.")
+        except Exception as exc:
+            bot.send_message(call.message.chat.id, f"Gagal membuka kapsul: {exc}")
+            return True
+
+        _show_capsule_detail(bot, call.message, row)
+        return True
     if data == "kapsul_done_media":
         state = get_state(pending_actions, user_id)
         if not state:
@@ -1087,6 +1122,7 @@ def _notify_ready_capsule(bot, supabase, row):
     account = _get_account_by_id(supabase, row["account_id"])
     if not account:
         return
+
     chat_id = int(account["telegram_user_id"])
     unlock_at = parse_db_datetime(row.get("unlock_at"))
     text = (
@@ -1098,7 +1134,6 @@ def _notify_ready_capsule(bot, supabase, row):
     kb = InlineKeyboardMarkup()
     kb.row(InlineKeyboardButton("📬 Buka Sekarang", callback_data=f"kapsul_open:{row['id']}"))
     bot.send_message(chat_id, text, reply_markup=kb)
-
 def start_kapsul_scheduler(bot, supabase, interval_seconds=60):
     ensure_capsule_dirs()
 
