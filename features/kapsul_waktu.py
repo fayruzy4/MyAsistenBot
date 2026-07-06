@@ -981,7 +981,7 @@ def process_kapsul_callback(bot, call, supabase, pending_actions, show_dashboard
         start_create_flow(bot, call.message, pending_actions, user_id)
         return True
 
-   if data.startswith("kapsul_open:"):
+    if data.startswith("kapsul_open:"):
         capsule_id = int(data.split(":", 1)[1])
         row = _get_capsule_by_id(supabase, capsule_id)
         if not row:
