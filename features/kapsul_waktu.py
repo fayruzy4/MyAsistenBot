@@ -298,10 +298,6 @@ def show_kapsul_inbox(bot, message, supabase, user_id, edit=False):
         return
 
     account_id = account[0]["id"]
-
-    # FIX:
-    # sebelumnya hanya READY dan OPENED,
-    # jadi kapsul LOCKED tidak kelihatan di kotak kapsul.
     rows = _fetch_capsules_for_user(
         supabase,
         account_id,
@@ -328,12 +324,7 @@ def show_kapsul_inbox(bot, message, supabase, user_id, edit=False):
 
     if edit:
         try:
-            bot.edit_message_text(
-                text,
-                message.chat.id,
-                message.message_id,
-                reply_markup=kb,
-            )
+            bot.edit_message_text(text, message.chat.id, message.message_id, reply_markup=kb)
         except Exception:
             bot.send_message(message.chat.id, text, reply_markup=kb)
     else:
@@ -1007,6 +998,7 @@ def process_kapsul_callback(bot, call, supabase, pending_actions, show_dashboard
         if unlock_at and now < unlock_at:
             _show_capsule_detail(bot, call.message, row)
             return True
+
         try:
             _send_capsule_contents(bot, call.message.chat.id, row)
             opened_iso = now_jkt().astimezone(timezone.utc).isoformat()
